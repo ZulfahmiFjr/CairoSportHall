@@ -65,8 +65,8 @@
     </div>
     <script type="module">
         // import fungsi firebase dari CDN
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-analytics.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
+        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
         // TODO: copas kode config dari akun firebase ke dalem sini
         const firebaseConfig = {
             apiKey: "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40",
