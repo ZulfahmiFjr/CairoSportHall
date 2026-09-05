@@ -65,17 +65,18 @@
     </div>
     <script type="module">
         // import fungsi firebase dari CDN
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
-        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-analytics.js";
         // TODO: copas kode config dari akun firebase ke dalem sini
         const firebaseConfig = {
-            apiKey: "KODE_API",
+            apiKey: "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40",
             authDomain: "cairosporthall.firebaseapp.com",
-            databaseURL: "https://cairosporthall.firebaseio.com",
+            databaseURL: "https://cairosporthall-default-rtdb.asia-southeast1.firebasedatabase.app",
             projectId: "cairosporthall",
-            storageBucket: "cairosporthall.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "1:123456789:web:abcdefg"
+            storageBucket: "cairosporthall.firebasestorage.app",
+            messagingSenderId: "180648731836",
+            appId: "1:180648731836:web:c223df91836d6cdd821cb9",
+            measurementId: "G-0PP7BPGX9G"
         };
         // nyalain firebasenyaa
         const app = initializeApp(firebaseConfig);
