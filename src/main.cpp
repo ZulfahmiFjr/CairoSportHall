@@ -12,14 +12,14 @@
 
 // copas dari file index.html
 #define API_KEY "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40"
-#define DATABASE_URL "https://cairosporthall-default-rtdb.asia-southeast1.firebasedatabase.app"
+#define DATABASE_URL "cairosporthall-default-rtdb.asia-southeast1.firebasedatabase.app"
 
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
 
 // daftar pin ESP32 buat disambung ke relay IN1 sampai IN8
-const int relayPins[8] = {13, 12, 14, 27, 26, 25, 33, 32};
+const int relayPins[8] = {2, 12, 14, 27, 26, 25, 33, 32};
 
 void setup() {
   Serial.begin(115200);
