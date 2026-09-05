@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Stop Kontak</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        h2 {
+            color: #333;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .saklar-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 120px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+            width: 100%;
+            transition: 0.2s;
+        }
+
+        .btn-off {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .btn-on {
+            background-color: #2ecc71;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Kontrol Stop Kontak</h2>
+    <div class="grid-container" id="saklar-container">
+        <!-- tombolnyaa bakal digenerate otomatis lewat Javascript -->
+    </div>
+    <script type="module">
+        // import fungsi firebase dari CDN
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
+        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
+        // TODO: copas kode config dari akun firebase ke dalem sini
+        const firebaseConfig = {
+            apiKey: "KODE_API",
+            authDomain: "cairosporthall.firebaseapp.com",
+            databaseURL: "https://cairosporthall.firebaseio.com",
+            projectId: "cairosporthall",
+            storageBucket: "cairosporthall.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdefg"
+        };
+        // nyalain firebasenyaa
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const container = document.getElementById('saklar-container');
+        // bikin 8 kotak saklar secara otomatis
+        for (let i = 1; i <= 8; i++) {
+            const card = document.createElement('div');
+            card.className = 'saklar-card';
+            const title = document.createElement('h3');
+            title.innerText = `Colokan ${i}`;
+            title.style.margin = "0 0 10px 0";
+            const btn = document.createElement('button');
+            btn.id = `btn-${i}`;
+            btn.className = 'btn btn-off';
+            btn.innerText = 'OFF';
+            // pas tombol diklik, kirim data ke firebase
+            btn.addEventListener('click', () => {
+                const statusSekarang = btn.innerText === 'ON' ? 0 : 1; // 1 buat nyala, 0 buat mati
+                set(ref(db, `stopkontak/relay${i}`), statusSekarang);
+            });
+            card.appendChild(title);
+            card.appendChild(btn);
+            container.appendChild(card);
+            // pantau perubahan data dari firebase secara realtime
+            const relayRef = ref(db, `stopkontak/relay${i}`);
+            onValue(relayRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data === 1) {
+                    btn.className = 'btn btn-on';
+                    btn.innerText = 'ON';
+                } else {
+                    btn.className = 'btn btn-off';
+                    btn.innerText = 'OFF';
+                }
+            });
+        }
+    </script>
+</body>
+
+</html>
