@@ -11,6 +11,7 @@
 #define API_KEY "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40"
 #define DATABASE_URL "cairosporthall-default-rtdb.asia-southeast1.firebasedatabase.app"
 FirebaseData fbdo;
+FirebaseData fbdoHeartbeat;
 FirebaseAuth auth;
 FirebaseConfig config;
 // daftarpin esp32 buat disambungin kerelay in1 sampe in8
@@ -43,9 +44,9 @@ void setup() {
 void loop() {
   if (Firebase.ready()) {
     unsigned long waktuSekarang = millis();
-    // ngirim status kehidupan esp32 tiap lima detik sekali
+    // ngirim status kehidupan esp32 tiap lima detik sekali pakai path stopkontak biar ngga diblokir rules
     if (waktuSekarang - waktuDetakTerakhir >= 5000) {
-      Firebase.RTDB.setInt(&fbdo, "/status/heartbeat", waktuSekarang);
+      Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/heartbeat", waktuSekarang);
       waktuDetakTerakhir = waktuSekarang;
     }
     // ngecekin data firebase buat delapan tombolnyaa berurutan

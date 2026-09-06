@@ -375,7 +375,7 @@
             updateConnectionStatus();
         });
         // mantau detak jantung esp32 secara realtime
-        const heartbeatRef = ref(db, "status/heartbeat");
+        const heartbeatRef = ref(db, "stopkontak/heartbeat");
         onValue(heartbeatRef, (snapshot) => {
             if (snapshot.exists()) {
                 waktuDetakTerakhir = Date.now();
@@ -384,7 +384,7 @@
         // ngecek status idup matinyaa esp32 tiap tiga detik
         setInterval(() => {
             const selisihWaktu = Date.now() - waktuDetakTerakhir;
-            if (selisihWaktu > 12000) {
+            if (selisihWaktu > 20000) {
                 deviceStatusEl.innerText = "Status Alat: Terputus";
                 deviceStatusEl.className = "connection-status status-offline";
             } else {
