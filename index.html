@@ -273,6 +273,79 @@
       box-shadow: 0 6px 20px rgba(255, 65, 108, 0.5);
       transform: scale(1.03);
     }
+
+    /* css buat modal popup pengaturan jadwal */
+    .modal-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(15, 32, 39, 0.85);
+      backdrop-filter: blur(10px);
+      z-index: 2000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-box {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 30px;
+      border-radius: 20px;
+      width: 100%;
+      max-width: 400px;
+      color: white;
+    }
+
+    .modal-box h2 {
+      margin-top: 0;
+      background: linear-gradient(to right, #4facfe, #00f2fe);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 20px;
+    }
+
+    .days-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .days-container label {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 5px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 15px;
+      margin-top: 25px;
+    }
+
+    .btn-schedule {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      margin-bottom: 15px;
+      width: 100%;
+      transition: all 0.3s;
+    }
+
+    .btn-schedule:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
   </style>
 </head>
 
@@ -310,10 +383,46 @@
     </div>
   </div>
 
+  <!-- modal popup buat ngatur jadwal nyala mati otomatis -->
+  <div id="schedule-modal" class="modal-container" style="display: none;">
+    <div class="modal-box">
+      <h2 id="modal-title">Atur Jadwal</h2>
+      <div class="input-group">
+        <label>
+          <input type="checkbox" id="schedule-active"> Aktifkan Jadwal Otomatis
+        </label>
+      </div>
+      <div class="input-group">
+        <label>Waktu Hidup</label>
+        <input type="time" id="time-on">
+      </div>
+      <div class="input-group">
+        <label>Waktu Mati</label>
+        <input type="time" id="time-off">
+      </div>
+      <div class="input-group">
+        <label>Hari Berulang</label>
+        <div class="days-container">
+          <label><input type="checkbox" id="day-1"> Sen</label>
+          <label><input type="checkbox" id="day-2"> Sel</label>
+          <label><input type="checkbox" id="day-3"> Rab</label>
+          <label><input type="checkbox" id="day-4"> Kam</label>
+          <label><input type="checkbox" id="day-5"> Jum</label>
+          <label><input type="checkbox" id="day-6"> Sab</label>
+          <label><input type="checkbox" id="day-0"> Min</label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-matikan" id="btn-cancel-schedule">Batal</button>
+        <button class="btn btn-hidupkan" id="btn-save-schedule">Simpan Pengaturan</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module">
     // ngambil fungsi fungsi penting dari firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
-    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
+    import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
     import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
     // config dari firebasenyaa
     const firebaseConfig = {
@@ -341,6 +450,15 @@
     const container = document.getElementById('saklar-container');
     const connStatusEl = document.getElementById('conn-status');
     const deviceStatusEl = document.getElementById('device-status');
+    // elemen buat ngatur popup jadwal
+    const scheduleModal = document.getElementById('schedule-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const scheduleActive = document.getElementById('schedule-active');
+    const timeOn = document.getElementById('time-on');
+    const timeOff = document.getElementById('time-off');
+    const btnCancelSchedule = document.getElementById('btn-cancel-schedule');
+    const btnSaveSchedule = document.getElementById('btn-save-schedule');
+    let relayJadwalAktif = 0;
     let isOnline = navigator.onLine;
     let waktuDetakTerakhir = 0;
     // pantengin terus status loginnyaa trus hilangin atau nampilin kotak login
@@ -434,6 +552,12 @@
       const statusText = document.createElement('p');
       statusText.className = 'lamp-status-text';
       statusText.innerText = 'Memuat status...';
+      const btnJadwal = document.createElement('button');
+      btnJadwal.className = 'btn-schedule';
+      btnJadwal.innerText = '⚙️ Atur Jadwal';
+      btnJadwal.addEventListener('click', () => {
+        bukaModalJadwal(i);
+      });
       const btn = document.createElement('button');
       btn.id = `btn-${i}`;
       btn.className = 'btn btn-hidupkan';
@@ -445,6 +569,7 @@
         set(ref(db, `stopkontak/relay${i}`), statusSekarang);
       });
       card.appendChild(title);
+      card.appendChild(btnJadwal);
       card.appendChild(statusText);
       card.appendChild(btn);
       container.appendChild(card);
@@ -463,6 +588,78 @@
         }
       });
     }
+    // nampilin modal jadwal trus narik data langsung dari firebase biar akurat
+    function bukaModalJadwal(relayId) {
+      if (!isOnline) {
+        alert("Peringatan: Tidak ada koneksi internet. Gagal memuat jadwal.");
+        return;
+      }
+      relayJadwalAktif = relayId;
+      modalTitle.innerText = `Atur Jadwal Lampu ${relayId}`;
+      scheduleModal.style.display = 'flex';
+      scheduleActive.checked = false;
+      timeOn.value = '';
+      timeOff.value = '';
+      for (let i = 0; i <= 6; i++) {
+        document.getElementById(`day-${i}`).checked = false;
+      }
+      get(ref(db, `jadwal/relay${relayId}`)).then((snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          scheduleActive.checked = data.aktif || false;
+          if (data.jamNyala !== undefined && data.menitNyala !== undefined && data.jamNyala >= 0) {
+            timeOn.value = `${String(data.jamNyala).padStart(2, '0')}:${String(data.menitNyala).padStart(2, '0')}`;
+          }
+          if (data.jamMati !== undefined && data.menitMati !== undefined && data.jamMati >= 0) {
+            timeOff.value = `${String(data.jamMati).padStart(2, '0')}:${String(data.menitMati).padStart(2, '0')}`;
+          }
+          for (let i = 0; i <= 6; i++) {
+            document.getElementById(`day-${i}`).checked = data[`hari${i}`] || false;
+          }
+        }
+      }).catch(() => {
+        alert("Kesalahan: Gagal memuat data jadwal dari server.");
+      });
+    }
+    // tutup modalnyaa pas batal diklik
+    btnCancelSchedule.addEventListener('click', () => {
+      scheduleModal.style.display = 'none';
+    });
+    // ngelempar data json jadwal baru ke firebase pas tombol simpan diklik
+    btnSaveSchedule.addEventListener('click', () => {
+      let jamNyala = -1, menitNyala = -1, jamMati = -1, menitMati = -1;
+      if (timeOn.value) {
+        const partsOn = timeOn.value.split(':');
+        jamNyala = parseInt(partsOn[0]);
+        menitNyala = parseInt(partsOn[1]);
+      }
+      if (timeOff.value) {
+        const partsOff = timeOff.value.split(':');
+        jamMati = parseInt(partsOff[0]);
+        menitMati = parseInt(partsOff[1]);
+      }
+      const dataJadwal = {
+        aktif: scheduleActive.checked,
+        jamNyala: jamNyala,
+        menitNyala: menitNyala,
+        jamMati: jamMati,
+        menitMati: menitMati
+      };
+      for (let i = 0; i <= 6; i++) {
+        dataJadwal[`hari${i}`] = document.getElementById(`day-${i}`).checked;
+      }
+      btnSaveSchedule.innerText = 'Menyimpan...';
+      btnSaveSchedule.disabled = true;
+      set(ref(db, `jadwal/relay${relayJadwalAktif}`), dataJadwal).then(() => {
+        alert("Informasi: Jadwal berhasil disimpan.");
+        scheduleModal.style.display = 'none';
+      }).catch(() => {
+        alert("Kesalahan: Gagal menyimpan jadwal ke server.");
+      }).finally(() => {
+        btnSaveSchedule.innerText = 'Simpan Pengaturan';
+        btnSaveSchedule.disabled = false;
+      });
+    });
     // jalanin fungsinyaa sekali pas halaman webnyaa pertama kali kebuka
     updateConnectionStatus();
   </script>
