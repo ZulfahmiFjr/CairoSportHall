@@ -1,73 +1,144 @@
 <!DOCTYPE html>
 <html lang="id">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Stop Kontak</title>
+    <title>Cairo Sport Hall Smart Lamp</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f7f6;
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 20px;
+            color: white;
         }
-
-        h2 {
-            color: #333;
-        }
-
-        .grid-container {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
+        .header-container {
+            text-align: center;
+            margin-bottom: 30px;
             margin-top: 20px;
         }
-
-        .saklar-card {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            text-align: center;
-            width: 120px;
+        h1 {
+            font-weight: 800;
+            margin: 0;
+            font-size: 2.8rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.4);
+            letter-spacing: 1px;
+            background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
-
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-            margin-top: 10px;
+        .connection-status {
+            margin-top: 15px;
+            font-size: 1rem;
+            padding: 8px 20px;
+            border-radius: 30px;
+            display: inline-block;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        .status-online {
+            color: #4ade80;
+            border: 1px solid #4ade80;
+        }
+        .status-offline {
+            color: #f87171;
+            border: 1px solid #f87171;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 25px;
             width: 100%;
-            transition: 0.2s;
+            max-width: 1200px;
         }
-
-        .btn-off {
-            background-color: #e74c3c;
+        .lamp-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 30px 25px;
+            border-radius: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border 0.3s ease;
+        }
+        .lamp-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .lamp-title {
+            font-size: 1.6rem;
+            font-weight: 600;
+            margin: 0 0 10px 0;
+            color: #f8fafc;
+        }
+        .lamp-status-text {
+            font-size: 0.95rem;
+            margin-bottom: 25px;
+            color: #cbd5e1;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 1.15rem;
+            width: 100%;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+        .btn-matikan {
+            background: linear-gradient(135deg, #ff416c, #ff4b2b);
             color: white;
         }
-
-        .btn-on {
-            background-color: #2ecc71;
+        .btn-matikan:not(:disabled):hover {
+            box-shadow: 0 6px 20px rgba(255, 65, 108, 0.5);
+            transform: scale(1.03);
+        }
+        .btn-nyalakan {
+            background: linear-gradient(135deg, #11998e, #38ef7d);
             color: white;
+        }
+        .btn-nyalakan:not(:disabled):hover {
+            box-shadow: 0 6px 20px rgba(56, 239, 125, 0.5);
+            transform: scale(1.03);
         }
     </style>
 </head>
-
 <body>
-    <h2>Kontrol Stop Kontak</h2>
+    <div class="header-container">
+        <h1>Cairo Sport Hall Smart Lamp</h1>
+        <div id="conn-status" class="connection-status status-online">Koneksi Server: Mengecek...</div>
+    </div>
     <div class="grid-container" id="saklar-container">
-        <!-- tombolnyaa bakal digenerate otomatis lewat Javascript -->
+        <!-- tombol bakal digenerate otomatis lewat javascript -->
     </div>
     <script type="module">
-        // import fungsi firebase dari CDN
+        // ngimpor fungsi firebase dari cdn
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
         import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
-        // TODO: copas kode config dari akun firebase ke dalem sini
+        // config firebasenyaa
         const firebaseConfig = {
             apiKey: "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40",
             authDomain: "cairosporthall.firebaseapp.com",
@@ -82,39 +153,72 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
         const container = document.getElementById('saklar-container');
-        // bikin 8 kotak saklar secara otomatis
+        const connStatusEl = document.getElementById('conn-status');
+        let isOnline = navigator.onLine;
+        // fungsi buat ngatur uikoneksi
+        function updateConnectionStatus() {
+            isOnline = navigator.onLine;
+            const buttons = document.querySelectorAll('.btn');
+            if (isOnline) {
+                connStatusEl.innerText = "Koneksi Server: Terhubung";
+                connStatusEl.className = "connection-status status-online";
+                buttons.forEach(btn => btn.disabled = false);
+            } else {
+                connStatusEl.innerText = "Koneksi Server: Terputus";
+                connStatusEl.className = "connection-status status-offline";
+                buttons.forEach(btn => btn.disabled = true);
+            }
+        }
+        // pasang pendengar buat ngecek koneksiinternet browser
+        window.addEventListener('online', updateConnectionStatus);
+        window.addEventListener('offline', updateConnectionStatus);
+        // ngecek koneksi kearah firebase pake jalurconnected
+        const connectedRef = ref(db, ".info/connected");
+        onValue(connectedRef, (snap) => {
+            isOnline = snap.val() === true && navigator.onLine;
+            updateConnectionStatus();
+        });
+        // bikinin delapan kotaklampu secaralooping
         for (let i = 1; i <= 8; i++) {
             const card = document.createElement('div');
-            card.className = 'saklar-card';
+            card.className = 'lamp-card';
             const title = document.createElement('h3');
-            title.innerText = `Colokan ${i}`;
-            title.style.margin = "0 0 10px 0";
+            title.className = 'lamp-title';
+            title.innerText = `Lampu ${i}`;
+            const statusText = document.createElement('p');
+            statusText.className = 'lamp-status-text';
+            statusText.innerText = 'Memuat status...';
             const btn = document.createElement('button');
             btn.id = `btn-${i}`;
-            btn.className = 'btn btn-off';
-            btn.innerText = 'OFF';
-            // pas tombol diklik, kirim data ke firebase
+            btn.className = 'btn btn-nyalakan';
+            btn.innerText = 'Nyalakan';
+            // pastombol diklik kirimdata kefirebase
             btn.addEventListener('click', () => {
-                const statusSekarang = btn.innerText === 'ON' ? 0 : 1; // 1 buat nyala, 0 buat mati
+                if (!isOnline) return;
+                const statusSekarang = btn.innerText === 'Matikan' ? 0 : 1;
                 set(ref(db, `stopkontak/relay${i}`), statusSekarang);
             });
             card.appendChild(title);
+            card.appendChild(statusText);
             card.appendChild(btn);
             container.appendChild(card);
-            // pantau perubahan data dari firebase secara realtime
+            // mantaudata firebase secararealtime
             const relayRef = ref(db, `stopkontak/relay${i}`);
             onValue(relayRef, (snapshot) => {
                 const data = snapshot.val();
                 if (data === 1) {
-                    btn.className = 'btn btn-on';
-                    btn.innerText = 'ON';
+                    btn.className = 'btn btn-matikan';
+                    btn.innerText = 'Matikan';
+                    statusText.innerText = 'Lampu saat ini sedang menyala';
                 } else {
-                    btn.className = 'btn btn-off';
-                    btn.innerText = 'OFF';
+                    btn.className = 'btn btn-nyalakan';
+                    btn.innerText = 'Nyalakan';
+                    statusText.innerText = 'Lampu saat ini sedang mati';
                 }
             });
         }
+        // panggil sekali pasawal
+        updateConnectionStatus();
     </script>
 </body>
-
 </html>
