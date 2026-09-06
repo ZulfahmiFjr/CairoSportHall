@@ -264,12 +264,12 @@
       transform: scale(1.03);
     }
 
-    .btn-nyalakan {
+    .btn-hidupkan {
       background: linear-gradient(135deg, #ff416c, #ff4b2b);
       color: white;
     }
 
-    .btn-nyalakan:not(:disabled):hover {
+    .btn-hidupkan:not(:disabled):hover {
       box-shadow: 0 6px 20px rgba(255, 65, 108, 0.5);
       transform: scale(1.03);
     }
@@ -302,8 +302,8 @@
     </div>
     <div class="header-container">
       <h1>Cairo Sport Hall Smart Lamp</h1>
-      <div id="conn-status" class="connection-status status-online">Koneksi Server: Mengecek...</div>
-      <div id="device-status" class="connection-status status-offline">Status Alat: Mengecek...</div>
+      <div id="conn-status" class="connection-status status-online">Koneksi Anda: Mengecek...</div>
+      <div id="device-status" class="connection-status status-offline">Koneksi Alat: Mengecek...</div>
     </div>
     <div class="grid-container" id="saklar-container">
       <!-- tombolnyaa bakal digenerate otomatis pakai javascript -->
@@ -388,11 +388,11 @@
       isOnline = navigator.onLine;
       const buttons = document.querySelectorAll('.lamp-card .btn');
       if (isOnline) {
-        connStatusEl.innerText = "Koneksi Server: Terhubung";
+        connStatusEl.innerText = "Koneksi Anda: Terhubung";
         connStatusEl.className = "connection-status status-online";
         buttons.forEach(btn => btn.disabled = false);
       } else {
-        connStatusEl.innerText = "Koneksi Server: Terputus";
+        connStatusEl.innerText = "Koneksi Anda: Terputus";
         connStatusEl.className = "connection-status status-offline";
         buttons.forEach(btn => btn.disabled = true);
       }
@@ -417,10 +417,10 @@
     setInterval(() => {
       const selisihWaktu = Date.now() - waktuDetakTerakhir;
       if (selisihWaktu > 20000) {
-        deviceStatusEl.innerText = "Status Alat: Terputus";
+        deviceStatusEl.innerText = "Koneksi Alat: Terputus";
         deviceStatusEl.className = "connection-status status-offline";
       } else {
-        deviceStatusEl.innerText = "Status Alat: Terhubung";
+        deviceStatusEl.innerText = "Koneksi Alat: Terhubung";
         deviceStatusEl.className = "connection-status status-online";
       }
     }, 3000);
@@ -436,8 +436,8 @@
       statusText.innerText = 'Memuat status...';
       const btn = document.createElement('button');
       btn.id = `btn-${i}`;
-      btn.className = 'btn btn-nyalakan';
-      btn.innerText = 'Nyalakan';
+      btn.className = 'btn btn-hidupkan';
+      btn.innerText = 'Hidupkan';
       // lempar data ke firebase pas tombol saklarnyaa diklik
       btn.addEventListener('click', () => {
         if (!isOnline) return;
@@ -455,10 +455,10 @@
         if (data === 1) {
           btn.className = 'btn btn-matikan';
           btn.innerText = 'Matikan';
-          statusText.innerText = 'Lampu saat ini sedang menyala';
+          statusText.innerText = 'Lampu saat ini sedang hidup';
         } else {
-          btn.className = 'btn btn-nyalakan';
-          btn.innerText = 'Nyalakan';
+          btn.className = 'btn btn-hidupkan';
+          btn.innerText = 'Hidupkan';
           statusText.innerText = 'Lampu saat ini sedang mati';
         }
       });
