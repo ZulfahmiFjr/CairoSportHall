@@ -16,6 +16,122 @@
             flex-direction: column;
             align-items: center;
             color: white;
+            position: relative;
+        }
+        /* css buat kotak loginnyaa */
+        #login-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 32, 39, 0.85);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .login-box {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .login-box h2 {
+            margin-top: 0;
+            font-size: 2rem;
+            margin-bottom: 30px;
+            background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .input-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #cbd5e1;
+            font-size: 0.9rem;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.2);
+            color: white;
+            font-size: 1rem;
+            box-sizing: border-box;
+            outline: none;
+            transition: border 0.3s ease;
+        }
+        .input-group input:focus {
+            border: 1px solid #4facfe;
+        }
+        .btn-login {
+            background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%);
+            color: #0f2027;
+            margin-top: 10px;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 14px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 1.15rem;
+            width: 100%;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
+        }
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(79, 172, 254, 0.6);
+        }
+        /* css buat nampilin error pas login */
+        #login-error {
+            color: #f87171;
+            font-size: 0.85rem;
+            margin-top: 15px;
+            display: none;
+        }
+        /* css buat bungkus utama aplikasinyaa */
+        #dashboard-container {
+            width: 100%;
+            max-width: 1200px;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+        }
+        .top-bar {
+            display: flex;
+            justify-content: flex-end;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .btn-logout {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        .btn-logout:hover {
+            background: rgba(248, 113, 113, 0.2);
+            border-color: #f87171;
+            color: #f87171;
         }
         .header-container {
             text-align: center;
@@ -57,7 +173,6 @@
             grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             gap: 25px;
             width: 100%;
-            max-width: 1200px;
         }
         .lamp-card {
             background: rgba(255, 255, 255, 0.05);
@@ -127,18 +242,44 @@
     </style>
 </head>
 <body>
-    <div class="header-container">
-        <h1>Cairo Sport Hall Smart Lamp</h1>
-        <div id="conn-status" class="connection-status status-online">Koneksi Server: Mengecek...</div>
+
+    <!-- ini bagian layar penuh nutupin tombol buat masuk pertama kali -->
+    <div id="login-container">
+        <div class="login-box">
+            <h2>Masuk</h2>
+            <div class="input-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Masukkan Username Anda">
+            </div>
+            <div class="input-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Masukkan Password Anda">
+            </div>
+            <button class="btn-login" id="btn-login">Login</button>
+            <div id="login-error"></div>
+        </div>
     </div>
-    <div class="grid-container" id="saklar-container">
-        <!-- tombol bakal digenerate otomatis lewat javascript -->
+
+    <!-- ini tempat nongkrong utama semua tombol saklarnyaa -->
+    <div id="dashboard-container">
+        <div class="top-bar">
+            <button class="btn-logout" id="btn-logout">Keluar</button>
+        </div>
+        <div class="header-container">
+            <h1>Cairo Sport Hall Smart Lamp</h1>
+            <div id="conn-status" class="connection-status status-online">Koneksi Server: Mengecek...</div>
+        </div>
+        <div class="grid-container" id="saklar-container">
+            <!-- tombolnyaa bakal digenerate otomatis pakai javascript -->
+        </div>
     </div>
+
     <script type="module">
-        // ngimpor fungsi firebase dari cdn
+        // ngambil fungsi fungsi penting dari firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
         import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
-        // config firebasenyaa
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
+        // config dari firebasenyaa
         const firebaseConfig = {
             apiKey: "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40",
             authDomain: "cairosporthall.firebaseapp.com",
@@ -149,16 +290,65 @@
             appId: "1:180648731836:web:c223df91836d6cdd821cb9",
             measurementId: "G-0PP7BPGX9G"
         };
-        // nyalain firebasenyaa
+        // nyalain layanan firebase sama authnyaa juga
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
+        const auth = getAuth(app);
+        // siapin semua elemen html yang mau diotak atik
+        const loginContainer = document.getElementById('login-container');
+        const dashboardContainer = document.getElementById('dashboard-container');
+        const btnLogin = document.getElementById('btn-login');
+        const btnLogout = document.getElementById('btn-logout');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const loginError = document.getElementById('login-error');
         const container = document.getElementById('saklar-container');
         const connStatusEl = document.getElementById('conn-status');
         let isOnline = navigator.onLine;
-        // fungsi buat ngatur uikoneksi
+        // pantengin terus status loginnyaa trus hilangin atau nampilin kotak login
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                loginContainer.style.display = 'none';
+                dashboardContainer.style.display = 'flex';
+                updateConnectionStatus();
+            } else {
+                loginContainer.style.display = 'flex';
+                dashboardContainer.style.display = 'none';
+            }
+        });
+        // pas tombol login dipencet kita gabungin username yang diinput sama string emailnyaa
+        btnLogin.addEventListener('click', () => {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+            if (!username || !password) {
+                loginError.innerText = "Mohon lengkapi Username dan Password Anda.";
+                loginError.style.display = 'block';
+                return;
+            }
+            const emailBuatan = username + "@cairo.com";
+            btnLogin.innerText = "Memuat...";
+            btnLogin.disabled = true;
+            signInWithEmailAndPassword(auth, emailBuatan, password).then(() => {
+                loginError.style.display = 'none';
+                btnLogin.innerText = "Login";
+                btnLogin.disabled = false;
+                usernameInput.value = '';
+                passwordInput.value = '';
+            }).catch((error) => {
+                loginError.innerText = "Login gagal. Pastikan Username dan Password sudah benar.";
+                loginError.style.display = 'block';
+                btnLogin.innerText = "Login";
+                btnLogin.disabled = false;
+            });
+        });
+        // kalau udah beres trus pengen keluar pencet tombol yang ini aja
+        btnLogout.addEventListener('click', () => {
+            signOut(auth);
+        });
+        // nah ini fungsi buat ngatur tampilan status koneksinyaa
         function updateConnectionStatus() {
             isOnline = navigator.onLine;
-            const buttons = document.querySelectorAll('.btn');
+            const buttons = document.querySelectorAll('.lamp-card .btn');
             if (isOnline) {
                 connStatusEl.innerText = "Koneksi Server: Terhubung";
                 connStatusEl.className = "connection-status status-online";
@@ -169,16 +359,16 @@
                 buttons.forEach(btn => btn.disabled = true);
             }
         }
-        // pasang pendengar buat ngecek koneksiinternet browser
+        // pasang kuping buat dengerin perubahan koneksi internet di browser
         window.addEventListener('online', updateConnectionStatus);
         window.addEventListener('offline', updateConnectionStatus);
-        // ngecek koneksi kearah firebase pake jalurconnected
+        // ngecek status koneksi langsung ke firebase pakai jalur khusus connected
         const connectedRef = ref(db, ".info/connected");
         onValue(connectedRef, (snap) => {
             isOnline = snap.val() === true && navigator.onLine;
             updateConnectionStatus();
         });
-        // bikinin delapan kotaklampu secaralooping
+        // ini buat ngehasilin delapan kotak tombol secara berulang ulang pakai loop
         for (let i = 1; i <= 8; i++) {
             const card = document.createElement('div');
             card.className = 'lamp-card';
@@ -192,7 +382,7 @@
             btn.id = `btn-${i}`;
             btn.className = 'btn btn-nyalakan';
             btn.innerText = 'Nyalakan';
-            // pastombol diklik kirimdata kefirebase
+            // lempar data ke firebase pas tombol saklarnyaa diklik
             btn.addEventListener('click', () => {
                 if (!isOnline) return;
                 const statusSekarang = btn.classList.contains('btn-matikan') ? 0 : 1;
@@ -202,7 +392,7 @@
             card.appendChild(statusText);
             card.appendChild(btn);
             container.appendChild(card);
-            // mantaudata firebase secararealtime
+            // pantengin terus data dari firebase secara langsung tanpa delay
             const relayRef = ref(db, `stopkontak/relay${i}`);
             onValue(relayRef, (snapshot) => {
                 const data = snapshot.val();
@@ -217,7 +407,7 @@
                 }
             });
         }
-        // panggil sekali pasawal
+        // jalanin fungsinyaa sekali pas halaman webnyaa pertama kali kebuka
         updateConnectionStatus();
     </script>
 </body>

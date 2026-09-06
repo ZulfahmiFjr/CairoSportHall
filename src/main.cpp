@@ -29,14 +29,14 @@ void setup() {
     // karna relaynyaa tipenyaa lowtrigger trus biar mati diawal mending dikasih high
     digitalWrite(relayPins[i], HIGH);
   }
-  // nyambungin kewifi
+  // nyambungin ke wifi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("nyambungin kewifi");
+  Serial.print("nyambungin ke wifi");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("konekmantapbanget!");
+  Serial.println("konek mantapp!");
   // nyiapin firebasenyaa
   config.api_key = API_KEY;
   config.database_url = DATABASE_URL;
