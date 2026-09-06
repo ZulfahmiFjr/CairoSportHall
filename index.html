@@ -195,7 +195,7 @@
             // pastombol diklik kirimdata kefirebase
             btn.addEventListener('click', () => {
                 if (!isOnline) return;
-                const statusSekarang = btn.innerText === 'Matikan' ? 0 : 1;
+                const statusSekarang = btn.classList.contains('btn-matikan') ? 0 : 1;
                 set(ref(db, `stopkontak/relay${i}`), statusSekarang);
             });
             card.appendChild(title);
