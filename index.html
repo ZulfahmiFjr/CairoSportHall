@@ -4,10 +4,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cairo Sport Hall Smart Lamp</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <title>Cairo Sport Hall Smart Control</title>
+  <!-- font plus jakarta sans biar kekinian dan proporsional -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- nyambungin file cssnyaa kesini -->
   <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/png" href="cairo.png">
 </head>
 
 <body>
@@ -15,7 +19,11 @@
   <!-- ini bagian layar penuh nutupin tombol buat masuk pertama kali -->
   <div id="login-container">
     <div class="login-box">
-      <h2>Masuk</h2>
+      <div class="login-logo-container">
+        <img src="cairo.png" alt="Cairo Sport Hall" class="app-corner-logo">
+      </div>
+      <h2>MASUK</h2>
+      <p class="login-subtitle">Sistem Kontrol Jarak Jauh Saklar Cairo Indo Sport Hall</p>
       <div class="input-group">
         <label for="username">Username</label>
         <input type="text" id="username" placeholder="Masukkan Username Anda">
@@ -32,12 +40,21 @@
   <!-- ini tempat nongkrong utama semua tombol saklarnyaa -->
   <div id="dashboard-container">
     <div class="top-bar">
+      <div class="top-bar-brand">
+        <img src="cairo.png" alt="Cairo Sport Hall" class="app-corner-logo">
+      </div>
       <button class="btn-logout" id="btn-logout">Keluar</button>
     </div>
     <div class="header-container">
-      <h1>Cairo Sport Hall Smart Lamp</h1>
-      <div id="conn-status" class="connection-status status-online">Koneksi Anda: Mengecek...</div>
-      <div id="device-status" class="connection-status status-offline">Koneksi Alat: Mengecek...</div>
+      <h1>
+        <span class="title-primary">CAIRO INDO SPORT HALL</span>
+        <span class="title-accent">Smart Control</span>
+      </h1>
+      <p class="header-desc">Panel Control & Penjadwalan Saklar Jarak Jauh</p>
+      <div class="status-row">
+        <div id="conn-status" class="connection-status status-online">Koneksi Anda: Mengecek...</div>
+        <div id="device-status" class="connection-status status-offline">Koneksi Alat: Mengecek...</div>
+      </div>
     </div>
     <div class="grid-container" id="saklar-container">
       <!-- tombolnyaa bakal digenerate otomatis pakai javascript -->
@@ -47,38 +64,73 @@
   <!-- modal popup buat ngatur jadwal nyala mati otomatis -->
   <div id="schedule-modal" class="modal-container" style="display: none;">
     <div class="modal-box">
-      <h2 id="modal-title">Atur Jadwal</h2>
-      <div class="input-group">
-        <label>
-          <input type="checkbox" id="schedule-active"> Aktifkan Jadwal Otomatis
+      <div class="modal-header modal-header-center">
+        <h2 id="modal-title">Konfigurasi Saklar</h2>
+        <div class="modal-switch-name-wrap">
+          <span id="modal-switch-name" class="modal-switch-name">Saklar 1</span>
+          <button type="button" id="btn-edit-switch-name" class="btn-edit-name in-modal" title="Ubah Nama Saklar">✏️</button>
+        </div>
+        <p class="modal-desc">Konfigurasi waktu dan pengulangan relai saklar</p>
+      </div>
+      <div class="input-group active-toggle-wrap">
+        <label class="toggle-label" for="schedule-active">
+          <span class="toggle-text">Aktifkan Jadwal Otomatis</span>
+          <span class="toggle-switch-wrapper">
+            <input type="checkbox" id="schedule-active">
+            <span class="toggle-custom"></span>
+          </span>
         </label>
       </div>
-      <div class="input-group">
-        <label>Waktu Hidup</label>
-        <input type="time" id="time-on">
+      <div class="time-grid">
+        <div class="input-group">
+          <label for="time-on">Waktu Hidup</label>
+          <input type="time" id="time-on">
+        </div>
+        <div class="input-group">
+          <label for="time-off">Waktu Mati</label>
+          <input type="time" id="time-off">
+        </div>
       </div>
       <div class="input-group">
-        <label>Waktu Mati</label>
-        <input type="time" id="time-off">
-      </div>
-      <div class="input-group">
-        <label>Hari Berulang</label>
+        <label>Hari</label>
         <div class="days-container">
-          <label><input type="checkbox" id="day-1"> Sen</label>
-          <label><input type="checkbox" id="day-2"> Sel</label>
-          <label><input type="checkbox" id="day-3"> Rab</label>
-          <label><input type="checkbox" id="day-4"> Kam</label>
-          <label><input type="checkbox" id="day-5"> Jum</label>
-          <label><input type="checkbox" id="day-6"> Sab</label>
-          <label><input type="checkbox" id="day-0"> Min</label>
+          <label class="day-chip"><input type="checkbox" id="day-1"><span>Sen</span></label>
+          <label class="day-chip"><input type="checkbox" id="day-2"><span>Sel</span></label>
+          <label class="day-chip"><input type="checkbox" id="day-3"><span>Rab</span></label>
+          <label class="day-chip"><input type="checkbox" id="day-4"><span>Kam</span></label>
+          <label class="day-chip"><input type="checkbox" id="day-5"><span>Jum</span></label>
+          <label class="day-chip"><input type="checkbox" id="day-6"><span>Sab</span></label>
+          <label class="day-chip"><input type="checkbox" id="day-0"><span>Min</span></label>
         </div>
       </div>
       <div class="modal-actions">
         <button class="btn btn-matikan" id="btn-cancel-schedule">Batal</button>
-        <button class="btn btn-hidupkan" id="btn-save-schedule">Simpan Pengaturan</button>
+        <button class="btn btn-hidupkan" id="btn-save-schedule">Simpan Perubahan</button>
       </div>
     </div>
   </div>
+
+  <!-- modal popup buat ubah nama saklar oleh admin -->
+  <div id="edit-name-modal" class="modal-container" style="display: none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 id="edit-name-title">Ubah Nama Saklar</h2>
+        <p class="modal-desc" id="edit-name-desc">Kustomisasi nama tampilan saklar</p>
+      </div>
+      <div class="input-group">
+        <label for="input-switch-name">Nama Saklar Baru</label>
+        <input type="text" id="input-switch-name" maxlength="30" placeholder="Contoh: Kipas Angin / Lampu Parkir">
+        <p class="input-hint">Kosongkan jika ingin mengembalikan ke nama default (Saklar 1 - 8).</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-matikan" id="btn-cancel-edit-name">Batal</button>
+        <button class="btn btn-hidupkan" id="btn-save-edit-name">Simpan Nama</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- wadah notifikasi popup custom toast -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <!-- manggil script jsnyaa pakai tipe module biar import firebasenyaa jalan -->
   <script type="module" src="app.js"></script>
