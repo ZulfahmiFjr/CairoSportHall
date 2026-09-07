@@ -9,13 +9,8 @@
 #include "addons/TokenHelper.h"
 #include "addons/RTDBHelper.h"
 
-// wifinyaa esp32 nih
-#define WIFI_SSID "anon"
-#define WIFI_PASSWORD "12345678"
-
-// copasin aja dari file index.html
-#define API_KEY "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40"
-#define DATABASE_URL "cairosporthall-default-rtdb.asia-southeast1.firebasedatabase.app"
+// panggil file rahasia yang udah dibikin
+#include "secrets.h"
 
 FirebaseData fbdo;
 FirebaseData fbdoHeartbeat;
@@ -57,7 +52,10 @@ void setup() {
   // nyiapin firebasenyaa
   config.api_key = API_KEY;
   config.database_url = DATABASE_URL;
-  config.signer.test_mode = true;
+  // masukin data loginnyaa ke config biar esp32nyaa dapet izin masuk
+  auth.user.email = FIREBASE_EMAIL;
+  auth.user.password = FIREBASE_PASSWORD;
+  // jalanin firebasenyaa pakai data config sama auth yang baru
   Firebase.begin(&config, &auth);
   // ini buat reconnect wifi sama firebasenyaa otomatis kalau terputus
   Firebase.reconnectWiFi(true);
