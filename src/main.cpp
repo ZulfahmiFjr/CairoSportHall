@@ -55,6 +55,8 @@ void setup() {
   // masukin data loginnyaa ke config biar esp32nyaa dapet izin masuk
   auth.user.email = FIREBASE_EMAIL;
   auth.user.password = FIREBASE_PASSWORD;
+  // nah ini dia baris saktinyaa biar library mobizt bisa ngurusin token tiket masuk
+  config.token_status_callback = tokenStatusCallback;
   // jalanin firebasenyaa pakai data config sama auth yang baru
   Firebase.begin(&config, &auth);
   // ini buat reconnect wifi sama firebasenyaa otomatis kalau terputus
