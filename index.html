@@ -617,8 +617,8 @@
             document.getElementById(`day-${i}`).checked = data[`hari${i}`] || false;
           }
         }
-      }).catch(() => {
-        alert("Kesalahan: Gagal memuat data jadwal dari server.");
+      }).catch((error) => {
+        console.log("kesalahan: gagal memuat data jadwal dari server.", error);
       });
     }
     // tutup modalnyaa pas batal diklik
