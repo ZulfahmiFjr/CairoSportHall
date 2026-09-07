@@ -491,7 +491,10 @@
         usernameInput.value = '';
         passwordInput.value = '';
       }).catch((error) => {
-        loginError.innerText = "Login gagal. Pastikan Username dan Password sudah benar.";
+        console.error("Firebase Login Error:", error);
+        console.error("Code:", error.code);
+        console.error("Message:", error.message);
+        loginError.innerText = `${error.code}: ${error.message}`;
         loginError.style.display = 'block';
         btnLogin.innerText = "Login";
         btnLogin.disabled = false;
