@@ -653,8 +653,9 @@
       set(ref(db, `jadwal/relay${relayJadwalAktif}`), dataJadwal).then(() => {
         alert("Informasi: Jadwal berhasil disimpan.");
         scheduleModal.style.display = 'none';
-      }).catch(() => {
-        alert("Kesalahan: Gagal menyimpan jadwal ke server.");
+      }).catch((error) => {
+        console.log("kesalahan: gagal menyimpan jadwal ke server.", error);
+        alert("gagal nyimpen jadwalnyaa nih, coba buka inspect element trus cek tab console buat liat pesan aslinya!");
       }).finally(() => {
         btnSaveSchedule.innerText = 'Simpan Pengaturan';
         btnSaveSchedule.disabled = false;
