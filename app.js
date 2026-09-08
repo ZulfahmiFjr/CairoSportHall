@@ -42,6 +42,8 @@ const timeOn = document.getElementById('time-on');
 const timeOff = document.getElementById('time-off');
 const btnCancelSchedule = document.getElementById('btn-cancel-schedule');
 const btnSaveSchedule = document.getElementById('btn-save-schedule');
+const scheduleFieldsGroup = document.getElementById('schedule-fields-group');
+const toggleSubtext = document.getElementById('toggle-subtext');
 
 // elemen buat popup ubah nama saklar oleh admin
 const editNameModal = document.getElementById('edit-name-modal');
@@ -565,6 +567,39 @@ function saveInitialScheduleState() {
     checkScheduleChanges();
 }
 
+// fungsi untuk mengatur status aktif/nonaktif input waktu dan hari berdasarkan toggle jadwal otomatis
+function updateScheduleInputsState() {
+    const isAktif = scheduleActive.checked;
+
+    timeOn.disabled = !isAktif;
+    timeOff.disabled = !isAktif;
+
+    for (let i = 0; i <= 6; i++) {
+        const dayEl = document.getElementById(`day-${i}`);
+        if (dayEl) {
+            dayEl.disabled = !isAktif;
+        }
+    }
+
+    if (scheduleFieldsGroup) {
+        if (isAktif) {
+            scheduleFieldsGroup.classList.remove('is-disabled');
+        } else {
+            scheduleFieldsGroup.classList.add('is-disabled');
+        }
+    }
+
+    if (toggleSubtext) {
+        if (isAktif) {
+            toggleSubtext.innerText = 'Jadwal otomatis aktif';
+            toggleSubtext.className = 'toggle-subtext text-active';
+        } else {
+            toggleSubtext.innerText = 'Nyalakan untuk mengatur waktu & hari';
+            toggleSubtext.className = 'toggle-subtext text-inactive';
+        }
+    }
+}
+
 // periksa apakah ada perubahan pada form jadwal
 function checkScheduleChanges() {
     if (!relayJadwalAktif) {
@@ -580,16 +615,18 @@ function checkScheduleChanges() {
 
     if (currentAktif !== initialScheduleData.aktif) {
         hasScheduleChange = true;
-    } else if (currentTimeOn !== initialScheduleData.timeOn) {
-        hasScheduleChange = true;
-    } else if (currentTimeOff !== initialScheduleData.timeOff) {
-        hasScheduleChange = true;
-    } else {
-        for (let i = 0; i <= 6; i++) {
-            const initialDay = (initialScheduleData.days && initialScheduleData.days[i] !== undefined) ? initialScheduleData.days[i] : false;
-            if (document.getElementById(`day-${i}`).checked !== initialDay) {
-                hasScheduleChange = true;
-                break;
+    } else if (currentAktif) {
+        if (currentTimeOn !== initialScheduleData.timeOn) {
+            hasScheduleChange = true;
+        } else if (currentTimeOff !== initialScheduleData.timeOff) {
+            hasScheduleChange = true;
+        } else {
+            for (let i = 0; i <= 6; i++) {
+                const initialDay = (initialScheduleData.days && initialScheduleData.days[i] !== undefined) ? initialScheduleData.days[i] : false;
+                if (document.getElementById(`day-${i}`).checked !== initialDay) {
+                    hasScheduleChange = true;
+                    break;
+                }
             }
         }
     }
@@ -598,7 +635,10 @@ function checkScheduleChanges() {
 }
 
 // pasang listener pada semua kontrol jadwal
-scheduleActive.addEventListener('change', checkScheduleChanges);
+scheduleActive.addEventListener('change', () => {
+    updateScheduleInputsState();
+    checkScheduleChanges();
+});
 timeOn.addEventListener('input', checkScheduleChanges);
 timeOn.addEventListener('change', checkScheduleChanges);
 timeOff.addEventListener('input', checkScheduleChanges);
@@ -664,6 +704,7 @@ function bukaModalJadwal(relayId) {
     for (let i = 0; i <= 6; i++) {
         document.getElementById(`day-${i}`).checked = false;
     }
+    updateScheduleInputsState();
     btnSaveSchedule.innerText = 'Simpan Perubahan';
     btnSaveSchedule.disabled = true;
 
@@ -681,9 +722,11 @@ function bukaModalJadwal(relayId) {
                 document.getElementById(`day-${i}`).checked = data[`hari${i}`] || false;
             }
         }
+        updateScheduleInputsState();
         saveInitialScheduleState();
     }).catch((error) => {
         console.log("kesalahan: gagal memuat data jadwal dari server.", error);
+        updateScheduleInputsState();
         saveInitialScheduleState();
     });
 }
@@ -834,3 +877,4 @@ inputSwitchName.addEventListener('keydown', (e) => {
 
 // jalanin fungsinyaa sekali pas halaman webnyaa pertama kali kebuka
 updateConnectionStatus();
+updateScheduleInputsState();

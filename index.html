@@ -74,33 +74,38 @@
       </div>
       <div class="input-group active-toggle-wrap">
         <label class="toggle-label" for="schedule-active">
-          <span class="toggle-text">Aktifkan Jadwal Otomatis</span>
+          <div class="toggle-text-wrap">
+            <span class="toggle-text">Aktifkan Jadwal Otomatis</span>
+            <span class="toggle-subtext" id="toggle-subtext">Nyalakan untuk mengatur waktu & hari</span>
+          </div>
           <span class="toggle-switch-wrapper">
             <input type="checkbox" id="schedule-active">
             <span class="toggle-custom"></span>
           </span>
         </label>
       </div>
-      <div class="time-grid">
-        <div class="input-group">
-          <label for="time-on">Waktu Hidup</label>
-          <input type="time" id="time-on">
+      <div id="schedule-fields-group" class="schedule-fields-group is-disabled">
+        <div class="time-grid">
+          <div class="input-group">
+            <label for="time-on">Waktu Hidup</label>
+            <input type="time" id="time-on" disabled>
+          </div>
+          <div class="input-group">
+            <label for="time-off">Waktu Mati</label>
+            <input type="time" id="time-off" disabled>
+          </div>
         </div>
         <div class="input-group">
-          <label for="time-off">Waktu Mati</label>
-          <input type="time" id="time-off">
-        </div>
-      </div>
-      <div class="input-group">
-        <label>Hari</label>
-        <div class="days-container">
-          <label class="day-chip"><input type="checkbox" id="day-1"><span>Sen</span></label>
-          <label class="day-chip"><input type="checkbox" id="day-2"><span>Sel</span></label>
-          <label class="day-chip"><input type="checkbox" id="day-3"><span>Rab</span></label>
-          <label class="day-chip"><input type="checkbox" id="day-4"><span>Kam</span></label>
-          <label class="day-chip"><input type="checkbox" id="day-5"><span>Jum</span></label>
-          <label class="day-chip"><input type="checkbox" id="day-6"><span>Sab</span></label>
-          <label class="day-chip"><input type="checkbox" id="day-0"><span>Min</span></label>
+          <label id="days-label">Hari</label>
+          <div class="days-container">
+            <label class="day-chip"><input type="checkbox" id="day-1" disabled><span>Sen</span></label>
+            <label class="day-chip"><input type="checkbox" id="day-2" disabled><span>Sel</span></label>
+            <label class="day-chip"><input type="checkbox" id="day-3" disabled><span>Rab</span></label>
+            <label class="day-chip"><input type="checkbox" id="day-4" disabled><span>Kam</span></label>
+            <label class="day-chip"><input type="checkbox" id="day-5" disabled><span>Jum</span></label>
+            <label class="day-chip"><input type="checkbox" id="day-6" disabled><span>Sab</span></label>
+            <label class="day-chip"><input type="checkbox" id="day-0" disabled><span>Min</span></label>
+          </div>
         </div>
       </div>
       <div class="modal-actions">
