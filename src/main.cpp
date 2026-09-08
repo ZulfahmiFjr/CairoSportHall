@@ -74,7 +74,7 @@ void loop() {
       if (Firebase.RTDB.beginStream(&fbdoStream, "/stopkontak")) {
         streamTerpasang = true;
         Serial.println("jalur stream aktif dan sinkronisasi!");
-        // tarik data kondisi terbaru dan terapkan ke relay fisik dengan proteksi digitalread
+        // tarik data kondisi terbaru dan terapkan ke relay fisik
         if (Firebase.RTDB.getJSON(&fbdoJadwal, "/stopkontak")) {
           FirebaseJson &jsonAwal = fbdoJadwal.jsonObject();
           FirebaseJsonData dataAwal;
@@ -82,9 +82,7 @@ void loop() {
             jsonAwal.get(dataAwal, "relay" + String(i));
             if (dataAwal.success) {
               int targetState = dataAwal.intValue == 1 ? LOW : HIGH;
-              if (digitalRead(relayPins[i - 1]) != targetState) {
-                digitalWrite(relayPins[i - 1], targetState);
-              }
+              digitalWrite(relayPins[i - 1], targetState);
             }
           }
         }
@@ -109,9 +107,7 @@ void loop() {
             int relayIndex = streamPath.substring(6).toInt();
             if (relayIndex >= 1 && relayIndex <= 8) {
               int targetState = fbdoStream.intData() == 1 ? LOW : HIGH;
-              if (digitalRead(relayPins[relayIndex - 1]) != targetState) {
-                digitalWrite(relayPins[relayIndex - 1], targetState);
-              }
+              digitalWrite(relayPins[relayIndex - 1], targetState);
             }
           } else if (streamPath == "/") {
             if (fbdoStream.dataType() == "json") {
@@ -122,9 +118,7 @@ void loop() {
                 json.get(jsonData, key);
                 if (jsonData.success) {
                   int targetState = jsonData.intValue == 1 ? LOW : HIGH;
-                  if (digitalRead(relayPins[i - 1]) != targetState) {
-                    digitalWrite(relayPins[i - 1], targetState);
-                  }
+                  digitalWrite(relayPins[i - 1], targetState);
                 }
               }
             }
@@ -152,10 +146,13 @@ void loop() {
               String pathHari = pathBase + "/hari" + String(timeinfo.tm_wday);
               jsonJadwal.get(dataHari, pathHari);
               if (dataAktif.success && dataAktif.boolValue && dataHari.success && dataHari.boolValue) {
+                // langsung eksekusi pin fisik seketika trus sinkronkan ke database
                 if (dataJamNyala.success && dataMenitNyala.success && timeinfo.tm_hour == dataJamNyala.intValue && timeinfo.tm_min == dataMenitNyala.intValue) {
+                  digitalWrite(relayPins[i - 1], LOW);
                   Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/relay" + String(i), 1);
                 }
                 if (dataJamMati.success && dataMenitMati.success && timeinfo.tm_hour == dataJamMati.intValue && timeinfo.tm_min == dataMenitMati.intValue) {
+                  digitalWrite(relayPins[i - 1], HIGH);
                   Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/relay" + String(i), 0);
                 }
               }
