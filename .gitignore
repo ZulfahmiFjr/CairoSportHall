@@ -9,3 +9,6 @@ compile_commands.json
 secrets.h
 src/secrets.h
 include/secrets.h
+
+*.txt
+struktur_proyek.txt
