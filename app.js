@@ -320,8 +320,8 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
         const diffHours = Math.floor(diffMins / 60);
         const remMins = diffMins % 60;
         if (diffHours < 24) {
-            countdownText = remMins > 0 
-                ? `${icon} ${actionText} dalam ${diffHours} jam ${remMins} menit` 
+            countdownText = remMins > 0
+                ? `${icon} ${actionText} dalam ${diffHours} jam ${remMins} menit`
                 : `${icon} ${actionText} dalam ${diffHours} jam`;
         } else {
             const diffDays = Math.floor(diffHours / 24);
@@ -734,30 +734,25 @@ btnSaveSchedule.addEventListener('click', () => {
     });
 });
 
-// fungsi untuk mengecek apakah nama saklar berubah dari kondisi saat ini
+// fungsi buat mengecek apakah nama saklar berubah dari kondisi saat ini
 function checkEditNameChanges() {
     if (!relayEditNamaAktif) return;
     const defaultName = `Saklar ${relayEditNamaAktif}`;
     const currentName = (namaSaklarMap[relayEditNamaAktif] || defaultName).trim();
     const isCurrentDefault = currentName.toLowerCase() === defaultName.toLowerCase();
-    const inputVal = inputSwitchName.value.trim();
-
+    // bersihin karakter terlarang rtdb trus potong maksimal tiga puluh huruf
+    const rawVal = inputSwitchName.value.trim().replace(/[.#$\[\]\/]/g, '');
+    const inputVal = rawVal.substring(0, 30);
     let hasChange = false;
     if (inputVal === '') {
-        // Jika kosong, berarti ingin kembali ke default.
-        // Hanya bisa diklik jika saat ini belum default.
-        // Kalau sudah default dan diisi kosong, tetap tidak bisa klik simpan.
         hasChange = !isCurrentDefault;
     } else {
-        // Jika diisi, periksa apakah sama dengan default saat saat ini memang sudah default
         if (inputVal.toLowerCase() === defaultName.toLowerCase() && isCurrentDefault) {
             hasChange = false;
         } else {
-            // Berubah jika input berbeda dengan nama saat ini
             hasChange = (inputVal !== currentName);
         }
     }
-
     btnSaveEditName.disabled = !hasChange;
 }
 
@@ -777,8 +772,6 @@ function bukaModalEditNama(relayId) {
     const currentName = namaSaklarMap[relayId] || defaultName;
     editNameTitle.innerText = `Ubah Nama Saklar`;
     editNameDesc.innerText = `Kustomisasi nama untuk Saklar ${relayId} (Relay ${relayId})`;
-
-    // Jika nama masih default "Saklar X", kosongkan input agar placeholder terlihat rapi
     inputSwitchName.value = currentName === defaultName ? '' : currentName;
     inputSwitchName.placeholder = `Default: ${defaultName}`;
     checkEditNameChanges();
@@ -801,11 +794,11 @@ btnSaveEditName.addEventListener('click', () => {
         showToast("Tidak ada koneksi internet.", "warning");
         return;
     }
-    const inputVal = inputSwitchName.value.trim();
+    // bersihin karakter terlarang rtdb trus potong maksimal tiga puluh huruf
+    const rawVal = inputSwitchName.value.trim().replace(/[.#$\[\]\/]/g, '');
+    const inputVal = rawVal.substring(0, 30);
     btnSaveEditName.innerText = 'Menyimpan...';
     btnSaveEditName.disabled = true;
-
-    // Jika kosong atau sama dengan default, simpan null agar kembali ke default Saklar {i}
     const defaultName = `Saklar ${relayEditNamaAktif}`;
     const valToSave = (inputVal.length > 0 && inputVal.toLowerCase() !== defaultName.toLowerCase()) ? inputVal : null;
     set(ref(db, `nama_saklar/relay${relayEditNamaAktif}`), valToSave).then(() => {
