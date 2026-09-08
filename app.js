@@ -101,8 +101,7 @@ onValue(connectedRef, (snap) => {
 // fungsi buat memperbarui tampilan status alat ESP32
 function updateDeviceStatus() {
     if (!waktuDetakTerakhir) {
-        // Beri jeda toleransi 10 detik saat baru masuk sebelum menyatakan terputus
-        if (Date.now() - waktuLogin < 10000) {
+        if (Date.now() - waktuLogin < 5000) {
             deviceStatusEl.innerText = "Koneksi Alat: Mengecek...";
             deviceStatusEl.className = "connection-status status-offline";
             return;
@@ -112,7 +111,7 @@ function updateDeviceStatus() {
         return;
     }
     const selisihWaktu = Date.now() - waktuDetakTerakhir;
-    if (selisihWaktu > 20000) {
+    if (selisihWaktu > 8000) {
         deviceStatusEl.innerText = "Koneksi Alat: Terputus";
         deviceStatusEl.className = "connection-status status-offline";
     } else {
@@ -224,7 +223,7 @@ function startDatabaseListeners() {
     dbUnsubscribes.push(unsubJadwal);
 
     // 5. Interval rutin cek heartbeat ESP32
-    heartbeatIntervalId = setInterval(updateDeviceStatus, 3000);
+    heartbeatIntervalId = setInterval(updateDeviceStatus, 1000);
 
     // 6. Interval rutin update hitung mundur jadwal setiap 25 detik
     countdownIntervalId = setInterval(() => {
