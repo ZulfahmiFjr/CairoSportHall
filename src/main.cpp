@@ -12,8 +12,10 @@
 // panggil file rahasia yang udah dibikin
 #include "secrets.h"
 
-FirebaseData fbdo;
+// siapin objek data firebase khusus buat stream dan heartbeat
+FirebaseData fbdoStream;
 FirebaseData fbdoHeartbeat;
+FirebaseData fbdoJadwal;
 FirebaseAuth auth;
 FirebaseConfig config;
 
@@ -22,9 +24,6 @@ const int relayPins[8] = {2, 12, 14, 27, 26, 25, 33, 32};
 
 // variabel buat nyimpen waktu detak jantung terakhir
 unsigned long waktuDetakTerakhir = 0;
-
-// variabel buat nyimpen waktu cek firebase terakhir
-unsigned long waktuCekFirebaseTerakhir = 0;
 
 // variabel baru buat nyimpen menit terakhir dicek biar ngga spam getjson jadwal
 int menitTerakhirDicek = -1;
@@ -55,17 +54,52 @@ void setup() {
   // masukin data loginnyaa ke config biar esp32nyaa dapet izin masuk
   auth.user.email = FIREBASE_EMAIL;
   auth.user.password = FIREBASE_PASSWORD;
-  // nah ini dia baris saktinyaa biar library mobizt bisa ngurusin token tiket masuk
+  // baris sakti biar library mobizt ngurusin token autentikasi
   config.token_status_callback = tokenStatusCallback;
   // jalanin firebasenyaa pakai data config sama auth yang baru
   Firebase.begin(&config, &auth);
   // ini buat reconnect wifi sama firebasenyaa otomatis kalau terputus
   Firebase.reconnectWiFi(true);
+  // buka jalur stream websocket khusus ke stopkontak biar serba instan dan hemat kuota parah
+  if (!Firebase.RTDB.beginStream(&fbdoStream, "/stopkontak")) {
+    Serial.println("gagal pasang stream: " + fbdoStream.errorReason());
+  }
 }
 
 void loop() {
   if (Firebase.ready()) {
     unsigned long waktuSekarang = millis();
+    // ngecek data perubahan relay secara instan lewat jalur stream tanpa perlu polling berkala
+    if (Firebase.RTDB.readStream(&fbdoStream)) {
+      if (fbdoStream.streamAvailable()) {
+        String streamPath = fbdoStream.dataPath();
+        // abaikan kalau yang berubah cuma data heartbeat kiriman alat sendiri
+        if (streamPath != "/heartbeat") {
+          // kalau perubahan datanyaa berupa satu relay spesifik kyak /relay1
+          if (streamPath.startsWith("/relay")) {
+            int relayIndex = streamPath.substring(6).toInt();
+            if (relayIndex >= 1 && relayIndex <= 8) {
+              int status = fbdoStream.intData();
+              digitalWrite(relayPins[relayIndex - 1], status == 1 ? LOW : HIGH);
+            }
+          } else if (streamPath == "/") {
+            // kalau datanyaa dikirim serentak satu objek json stopkontak
+            if (fbdoStream.dataType() == "json") {
+              FirebaseJson &json = fbdoStream.jsonObject();
+              FirebaseJsonData jsonData;
+              for (int i = 1; i <= 8; i++) {
+                String key = "relay" + String(i);
+                json.get(jsonData, key);
+                if (jsonData.success) {
+                  int status = jsonData.intValue;
+                  digitalWrite(relayPins[i - 1], status == 1 ? LOW : HIGH);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
     // ngecek timer lima detik buat ngirim heartbeat sekaligus ngecek jadwalnyaa
     if (waktuSekarang - waktuDetakTerakhir >= 5000) {
       Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/heartbeat", waktuSekarang);
@@ -73,11 +107,10 @@ void loop() {
       struct tm timeinfo;
       // pastiin ngambil jam lokalnyaa sukses dulu
       if (getLocalTime(&timeinfo)) {
-        // nah ini kuncinyaa biar getjson jadwalnyaa cuma dieksekusi pas menitnyaa udah ganti aja
+        // cuma eksekusi getjson jadwal pas menitnyaa udah berganti aja
         if (timeinfo.tm_min != menitTerakhirDicek) {
-          // narik data pengaturan jadwal sekaligus biar kenceng
-          if (Firebase.RTDB.getJSON(&fbdo, "/jadwal")) {
-            FirebaseJson &jsonJadwal = fbdo.jsonObject();
+          if (Firebase.RTDB.getJSON(&fbdoJadwal, "/jadwal")) {
+            FirebaseJson &jsonJadwal = fbdoJadwal.jsonObject();
             FirebaseJsonData dataAktif, dataJamNyala, dataMenitNyala, dataJamMati, dataMenitMati, dataHari;
             for (int i = 1; i <= 8; i++) {
               String pathBase = "relay" + String(i);
@@ -88,45 +121,21 @@ void loop() {
               jsonJadwal.get(dataMenitMati, pathBase + "/menitMati");
               String pathHari = pathBase + "/hari" + String(timeinfo.tm_wday);
               jsonJadwal.get(dataHari, pathHari);
-              // pastiin semuanyaa bener bener dapet datanyaa dan jadwalku lagi nyala buat hari ini
               if (dataAktif.success && dataAktif.boolValue && dataHari.success && dataHari.boolValue) {
-                // logika nyalain relay
+                // logika otomatis nyalain relay
                 if (dataJamNyala.success && dataMenitNyala.success && timeinfo.tm_hour == dataJamNyala.intValue && timeinfo.tm_min == dataMenitNyala.intValue) {
                   Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/relay" + String(i), 1);
                 }
-                // logika matiin relay
+                // logika otomatis matiin relay
                 if (dataJamMati.success && dataMenitMati.success && timeinfo.tm_hour == dataJamMati.intValue && timeinfo.tm_min == dataMenitMati.intValue) {
                   Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/relay" + String(i), 0);
                 }
               }
             }
-            // update variabel menit terakhir dicek biar ngga ngulang getjson di lima detik berikutnyaa
             menitTerakhirDicek = timeinfo.tm_min;
           }
         }
       }
-    }
-    // ngecekin firebase tiap lima ratus milidetik kyak pengganti delay gitu
-    if (waktuSekarang - waktuCekFirebaseTerakhir >= 500) {
-      // narik datanyaa sekaligus pakai getjson biar ngga lag trus dipecahpecah buat masingmasing relay
-      if (Firebase.RTDB.getJSON(&fbdo, "/stopkontak")) {
-        FirebaseJson &json = fbdo.jsonObject();
-        FirebaseJsonData jsonData;
-        for (int i = 1; i <= 8; i++) {
-          String key = "relay" + String(i);
-          json.get(jsonData, key);
-          if (jsonData.success) {
-            int status = jsonData.intValue;
-            // logika kebalik kyak low trigger gitu
-            if (status == 1) {
-              digitalWrite(relayPins[i-1], LOW); // bikin nyala
-            } else {
-              digitalWrite(relayPins[i-1], HIGH); // bikin mati
-            }
-          }
-        }
-      }
-      waktuCekFirebaseTerakhir = waktuSekarang;
     }
   }
 }
