@@ -82,8 +82,9 @@ void loop() {
         // tarik data kondisi terbaru dan terapkan ke relay fisik
         if (Firebase.RTDB.getJSON(&fbdoJadwal, "/stopkontak")) {
           FirebaseJson &jsonAwal = fbdoJadwal.jsonObject();
-          FirebaseJsonData dataAwal;
           for (int i = 1; i <= 8; i++) {
+            // variabel dipindah ke dalam biar keriset otomatis ditiap puteran relay
+            FirebaseJsonData dataAwal;
             jsonAwal.get(dataAwal, "relay" + String(i));
             if (dataAwal.success) {
               int targetState = dataAwal.intValue == 1 ? LOW : HIGH;
@@ -117,8 +118,9 @@ void loop() {
           } else if (streamPath == "/") {
             if (fbdoStream.dataType() == "json") {
               FirebaseJson &json = fbdoStream.jsonObject();
-              FirebaseJsonData jsonData;
               for (int i = 1; i <= 8; i++) {
+                // pindah ke dalam juga biar ngga nyangkut
+                FirebaseJsonData jsonData;
                 String key = "relay" + String(i);
                 json.get(jsonData, key);
                 if (jsonData.success) {
@@ -143,8 +145,9 @@ void loop() {
             // tarik data jadwal kyak biasa
             if (Firebase.RTDB.getJSON(&fbdoJadwal, "/jadwal")) {
               FirebaseJson &jsonJadwal = fbdoJadwal.jsonObject();
-              FirebaseJsonData dataAktif, dataJamNyala, dataMenitNyala, dataJamMati, dataMenitMati, dataHari;
               for (int i = 1; i <= 8; i++) {
+                // pindahin penampung json jadwal kesini kuncinya! biar ngga copas dari relay satu
+                FirebaseJsonData dataAktif, dataJamNyala, dataMenitNyala, dataJamMati, dataMenitMati, dataHari;
                 String pathBase = "relay" + String(i);
                 jsonJadwal.get(dataAktif, pathBase + "/aktif");
                 jsonJadwal.get(dataJamNyala, pathBase + "/jamNyala");
@@ -176,8 +179,9 @@ void loop() {
       waktuAutoHealTerakhir = waktuSekarang;
       if (Firebase.RTDB.getJSON(&fbdoJadwal, "/stopkontak")) {
         FirebaseJson &jsonAwal = fbdoJadwal.jsonObject();
-        FirebaseJsonData dataAwal;
         for (int i = 1; i <= 8; i++) {
+          // pindah ke dalam biar keriset
+          FirebaseJsonData dataAwal;
           jsonAwal.get(dataAwal, "relay" + String(i));
           if (dataAwal.success) {
             int targetState = dataAwal.intValue == 1 ? LOW : HIGH;
