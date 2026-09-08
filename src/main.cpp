@@ -63,7 +63,7 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED) {
     if (streamTerpasang) {
       streamTerpasang = false;
-      fbdoStream.closeSession();
+      Firebase.RTDB.endStream(&fbdoStream);
     }
     return;
   }
