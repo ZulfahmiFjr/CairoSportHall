@@ -34,6 +34,9 @@ unsigned long waktuCobaStreamTerakhir = 0;
 // variabel baru buat timer auto heal lima detik
 unsigned long waktuAutoHealTerakhir = 0;
 
+// variabel buat mantau berapa lama wifi putus
+unsigned long waktuWifiPutus = 0;
+
 // variabel buat nyimpen menit terakhir dicek
 int menitTerakhirDicek = -1;
 
@@ -68,10 +71,22 @@ void loop() {
       streamTerpasang = false;
       Firebase.RTDB.endStream(&fbdoStream);
     }
+    if (waktuWifiPutus == 0) {
+      waktuWifiPutus = millis();
+    }
+    // kalau wifi putus lebih dari 15 detik, tendang paksa modul wifinyaa biar nyari lagi
+    if (millis() - waktuWifiPutus >= 15000) {
+      WiFi.disconnect();
+      WiFi.reconnect();
+      waktuWifiPutus = millis();
+    }
     // tetep kasih napas pas wifi putus biar ngga overheat
     delay(1);
     return;
+  } else {
+    waktuWifiPutus = 0;
   }
+  
   if (Firebase.ready()) {
     unsigned long waktuSekarang = millis();
     // pasang stream seketika pas wifi nyambung trus sinkronkan fisik relay sebelum kirim detak jantung
@@ -102,7 +117,8 @@ void loop() {
     // baca event stream realtime
     if (streamTerpasang) {
       if (!Firebase.RTDB.readStream(&fbdoStream)) {
-        if (fbdoStream.httpCode() <= 0 && (waktuSekarang - waktuCobaStreamTerakhir >= 3000)) {
+        // HAPUS syarat httpCode <= 0 biar error auth token expired (401) setelah 1 jam bisa ditangkap
+        if (waktuSekarang - waktuCobaStreamTerakhir >= 3000) {
           waktuCobaStreamTerakhir = waktuSekarang;
           streamTerpasang = false;
         }
