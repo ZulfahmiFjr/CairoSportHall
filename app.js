@@ -146,7 +146,6 @@ function startDatabaseListeners() {
     waktuLogin = Date.now();
     waktuDetakTerakhir = 0;
     updateDeviceStatus();
-
     // 1. Pantau detak jantung ESP32
     const heartbeatRef = ref(db, "stopkontak/heartbeat");
     const unsubHeartbeat = onValue(heartbeatRef, (snapshot) => {
@@ -158,7 +157,6 @@ function startDatabaseListeners() {
         console.error("Kesalahan listener heartbeat:", error);
     });
     dbUnsubscribes.push(unsubHeartbeat);
-
     // 2. Pantau status 8 saklar / relay
     for (let i = 1; i <= 8; i++) {
         const relayRef = ref(db, `stopkontak/relay${i}`);
@@ -186,7 +184,6 @@ function startDatabaseListeners() {
         });
         dbUnsubscribes.push(unsubRelay);
     }
-
     // 3. Pantau kustomisasi nama saklar realtime
     const namaRef = ref(db, "nama_saklar");
     const unsubNama = onValue(namaRef, (snapshot) => {
@@ -208,7 +205,6 @@ function startDatabaseListeners() {
         console.error("Kesalahan listener nama_saklar:", error);
     });
     dbUnsubscribes.push(unsubNama);
-
     // 4. Pantau status jadwal otomatis untuk semua saklar realtime
     const jadwalRef = ref(db, "jadwal");
     const unsubJadwal = onValue(jadwalRef, (snapshot) => {
@@ -221,18 +217,16 @@ function startDatabaseListeners() {
         console.error("Kesalahan listener jadwal:", error);
     });
     dbUnsubscribes.push(unsubJadwal);
-
     // 5. Interval rutin cek heartbeat ESP32
     heartbeatIntervalId = setInterval(updateDeviceStatus, 1000);
-
-    // 6. Interval rutin update hitung mundur jadwal setiap 25 detik
+    // 6. Interval rutin hitung mundur jadwal tiap 1 detik murni jalan di sisi client
     countdownIntervalId = setInterval(() => {
         for (let i = 1; i <= 8; i++) {
             if (jadwalMap[i] && jadwalMap[i].aktif) {
                 updateCardScheduleUI(i);
             }
         }
-    }, 25000);
+    }, 1000);
 }
 
 // format dua digit angka
@@ -245,15 +239,12 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
     if (!jadwalData || !jadwalData.aktif) {
         return { aktif: false, subtext: 'Jadwal Nonaktif' };
     }
-
     const { jamNyala, menitNyala, jamMati, menitMati } = jadwalData;
     const hasTimeOn = jamNyala !== undefined && menitNyala !== undefined && jamNyala >= 0;
     const hasTimeOff = jamMati !== undefined && menitMati !== undefined && jamMati >= 0;
-
     if (!hasTimeOn && !hasTimeOff) {
         return { aktif: false, subtext: 'Waktu belum diatur' };
     }
-
     let hasDay = false;
     for (let d = 0; d <= 6; d++) {
         if (jadwalData[`hari${d}`]) {
@@ -264,17 +255,13 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
     if (!hasDay) {
         return { aktif: false, subtext: 'Hari belum dipilih' };
     }
-
     const timeRange = `${hasTimeOn ? formatTwoDigits(jamNyala) + ':' + formatTwoDigits(menitNyala) : '--:--'} – ${hasTimeOff ? formatTwoDigits(jamMati) + ':' + formatTwoDigits(menitMati) : '--:--'}`;
-
     const now = new Date();
     const candidates = [];
-
     // Cari jadwal pemicu dalam 7 hari ke depan
     for (let offset = 0; offset <= 7; offset++) {
         const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
         const dayOfWeek = targetDate.getDay();
-
         if (jadwalData[`hari${dayOfWeek}`]) {
             if (hasTimeOn) {
                 const dateOn = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), jamNyala, menitNyala, 0);
@@ -290,13 +277,10 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
             }
         }
     }
-
     if (candidates.length === 0) {
         return { aktif: true, timeRange, countdownText: 'Menunggu siklus berikutnya' };
     }
-
     candidates.sort((a, b) => a.time.getTime() - b.time.getTime());
-
     // Cari event yang paling relevan dengan kondisi saklar saat ini
     let nextEvent = null;
     if (currentStatus === 1) {
@@ -306,16 +290,23 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
         // Saklar sedang mati: prioritaskan info kapan akan hidup
         nextEvent = candidates.find(c => c.type === 'ON') || candidates[0];
     }
-
+    // kalkulasi sisa waktu murni ke detik
     const diffMs = nextEvent.time.getTime() - now.getTime();
-    const diffMins = Math.max(1, Math.round(diffMs / 60000));
+    const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
+    const diffMins = Math.floor(totalSecs / 60);
+    const remSecs = totalSecs % 60;
     const actionText = nextEvent.type === 'ON' ? 'Hidup' : 'Mati';
     const icon = nextEvent.type === 'ON' ? '⚡' : '🌙';
-
     let countdownText = '';
-    if (diffMins < 60) {
-        countdownText = `${icon} ${actionText} dalam ${diffMins} menit`;
+    // logika tampilan teksnyaa
+    if (diffMins === 0) {
+        // kalau dibawah satu menit nampilin detik doang
+        countdownText = `${icon} ${actionText} dalam ${remSecs} detik`;
+    } else if (diffMins < 60) {
+        // kalau dibawah satu jam nampilin menit dan detiknyaa
+        countdownText = `${icon} ${actionText} dalam ${diffMins} menit ${remSecs} detik`;
     } else {
+        // kalau diatas satu jam balik ke tampilan format jam hari yang lama
         const diffHours = Math.floor(diffMins / 60);
         const remMins = diffMins % 60;
         if (diffHours < 24) {
@@ -334,7 +325,6 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
             }
         }
     }
-
     return { aktif: true, timeRange, countdownText };
 }
 

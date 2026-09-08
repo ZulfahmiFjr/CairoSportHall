@@ -65,6 +65,8 @@ void loop() {
       streamTerpasang = false;
       Firebase.RTDB.endStream(&fbdoStream);
     }
+    // tetep kasih napas pas wifi putus biar ngga overheat
+    delay(1);
     return;
   }
   if (Firebase.ready()) {
@@ -132,35 +134,40 @@ void loop() {
       waktuDetakTerakhir = waktuSekarang;
       struct tm timeinfo;
       if (getLocalTime(&timeinfo)) {
-        if (timeinfo.tm_min != menitTerakhirDicek) {
-          if (Firebase.RTDB.getJSON(&fbdoJadwal, "/jadwal")) {
-            FirebaseJson &jsonJadwal = fbdoJadwal.jsonObject();
-            FirebaseJsonData dataAktif, dataJamNyala, dataMenitNyala, dataJamMati, dataMenitMati, dataHari;
-            for (int i = 1; i <= 8; i++) {
-              String pathBase = "relay" + String(i);
-              jsonJadwal.get(dataAktif, pathBase + "/aktif");
-              jsonJadwal.get(dataJamNyala, pathBase + "/jamNyala");
-              jsonJadwal.get(dataMenitNyala, pathBase + "/menitNyala");
-              jsonJadwal.get(dataJamMati, pathBase + "/jamMati");
-              jsonJadwal.get(dataMenitMati, pathBase + "/menitMati");
-              String pathHari = pathBase + "/hari" + String(timeinfo.tm_wday);
-              jsonJadwal.get(dataHari, pathHari);
-              if (dataAktif.success && dataAktif.boolValue && dataHari.success && dataHari.boolValue) {
-                // langsung eksekusi pin fisik seketika trus sinkronkan ke database
-                if (dataJamNyala.success && dataMenitNyala.success && timeinfo.tm_hour == dataJamNyala.intValue && timeinfo.tm_min == dataMenitNyala.intValue) {
-                  digitalWrite(relayPins[i - 1], LOW);
-                  Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/relay" + String(i), 1);
-                }
-                if (dataJamMati.success && dataMenitMati.success && timeinfo.tm_hour == dataJamMati.intValue && timeinfo.tm_min == dataMenitMati.intValue) {
-                  digitalWrite(relayPins[i - 1], HIGH);
-                  Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/relay" + String(i), 0);
+        // proteksi anti halusinasi: mastiin tahun udah sinkron ke 2024 ke atas (tm_year dihitung dari 1900, 2024 = 124)
+        if (timeinfo.tm_year >= 124) {
+          if (timeinfo.tm_min != menitTerakhirDicek) {
+            if (Firebase.RTDB.getJSON(&fbdoJadwal, "/jadwal")) {
+              FirebaseJson &jsonJadwal = fbdoJadwal.jsonObject();
+              FirebaseJsonData dataAktif, dataJamNyala, dataMenitNyala, dataJamMati, dataMenitMati, dataHari;
+              for (int i = 1; i <= 8; i++) {
+                String pathBase = "relay" + String(i);
+                jsonJadwal.get(dataAktif, pathBase + "/aktif");
+                jsonJadwal.get(dataJamNyala, pathBase + "/jamNyala");
+                jsonJadwal.get(dataMenitNyala, pathBase + "/menitNyala");
+                jsonJadwal.get(dataJamMati, pathBase + "/jamMati");
+                jsonJadwal.get(dataMenitMati, pathBase + "/menitMati");
+                String pathHari = pathBase + "/hari" + String(timeinfo.tm_wday);
+                jsonJadwal.get(dataHari, pathHari);
+                if (dataAktif.success && dataAktif.boolValue && dataHari.success && dataHari.boolValue) {
+                  // langsung eksekusi pin fisik seketika trus sinkronkan ke database
+                  if (dataJamNyala.success && dataMenitNyala.success && timeinfo.tm_hour == dataJamNyala.intValue && timeinfo.tm_min == dataMenitNyala.intValue) {
+                    digitalWrite(relayPins[i - 1], LOW);
+                    Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/relay" + String(i), 1);
+                  }
+                  if (dataJamMati.success && dataMenitMati.success && timeinfo.tm_hour == dataJamMati.intValue && timeinfo.tm_min == dataMenitMati.intValue) {
+                    digitalWrite(relayPins[i - 1], HIGH);
+                    Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/relay" + String(i), 0);
+                  }
                 }
               }
+              menitTerakhirDicek = timeinfo.tm_min;
             }
-            menitTerakhirDicek = timeinfo.tm_min;
           }
         }
       }
     }
   }
+  // ngasih napas satu milidetik ke rtos esp32 biar hardware watchdog ngga aktiff trus bikin chip awet dingin
+  delay(1);
 }
