@@ -25,6 +25,9 @@ const int relayPins[8] = {2, 12, 14, 27, 26, 25, 33, 32};
 // variabel buat nyimpen waktu detak jantung terakhir
 unsigned long waktuDetakTerakhir = 0;
 
+// variabel buat timer jeda coba nyambungin stream ulang biar ngga nyepam
+unsigned long waktuCobaStreamTerakhir = 0;
+
 // variabel baru buat nyimpen menit terakhir dicek biar ngga spam getjson jadwal
 int menitTerakhirDicek = -1;
 
@@ -62,38 +65,43 @@ void setup() {
   Firebase.reconnectWiFi(true);
   // buka jalur stream websocket khusus ke stopkontak biar serba instan dan hemat kuota parah
   if (!Firebase.RTDB.beginStream(&fbdoStream, "/stopkontak")) {
-    Serial.println("gagal pasang stream: " + fbdoStream.errorReason());
+    Serial.println("gagal pasang stream awal: " + fbdoStream.errorReason());
   }
 }
 
 void loop() {
   if (Firebase.ready()) {
     unsigned long waktuSekarang = millis();
-    // ngecek data perubahan relay secara instan lewat jalur stream tanpa perlu polling berkala
-    if (Firebase.RTDB.readStream(&fbdoStream)) {
-      if (fbdoStream.streamAvailable()) {
-        String streamPath = fbdoStream.dataPath();
-        // abaikan kalau yang berubah cuma data heartbeat kiriman alat sendiri
-        if (streamPath != "/heartbeat") {
-          // kalau perubahan datanyaa berupa satu relay spesifik kyak /relay1
-          if (streamPath.startsWith("/relay")) {
-            int relayIndex = streamPath.substring(6).toInt();
-            if (relayIndex >= 1 && relayIndex <= 8) {
-              int status = fbdoStream.intData();
-              digitalWrite(relayPins[relayIndex - 1], status == 1 ? LOW : HIGH);
-            }
-          } else if (streamPath == "/") {
-            // kalau datanyaa dikirim serentak satu objek json stopkontak
-            if (fbdoStream.dataType() == "json") {
-              FirebaseJson &json = fbdoStream.jsonObject();
-              FirebaseJsonData jsonData;
-              for (int i = 1; i <= 8; i++) {
-                String key = "relay" + String(i);
-                json.get(jsonData, key);
-                if (jsonData.success) {
-                  int status = jsonData.intValue;
-                  digitalWrite(relayPins[i - 1], status == 1 ? LOW : HIGH);
-                }
+    // baca stream sekalian pulihin otomatis kalau koneksinyaa beku atau putus
+    if (!Firebase.RTDB.readStream(&fbdoStream)) {
+      // kalau status http minus atau nol berarti jalurnyaa putus trus dikasih jeda tiga detik biar ngga rakus cpu
+      if (fbdoStream.httpCode() <= 0 && (waktuSekarang - waktuCobaStreamTerakhir >= 3000)) {
+        waktuCobaStreamTerakhir = waktuSekarang;
+        Serial.println("stream beku atau putus, pasang ulang: " + fbdoStream.errorReason());
+        Firebase.RTDB.beginStream(&fbdoStream, "/stopkontak");
+      }
+    } else if (fbdoStream.streamAvailable()) {
+      String streamPath = fbdoStream.dataPath();
+      // abaikan kalau yang berubah cuma data heartbeat kiriman alat sendiri
+      if (streamPath != "/heartbeat") {
+        // kalau perubahan datanyaa berupa satu relay spesifik kyak /relay1
+        if (streamPath.startsWith("/relay")) {
+          int relayIndex = streamPath.substring(6).toInt();
+          if (relayIndex >= 1 && relayIndex <= 8) {
+            int status = fbdoStream.intData();
+            digitalWrite(relayPins[relayIndex - 1], status == 1 ? LOW : HIGH);
+          }
+        } else if (streamPath == "/") {
+          // kalau datanyaa dikirim serentak satu objek json stopkontak
+          if (fbdoStream.dataType() == "json") {
+            FirebaseJson &json = fbdoStream.jsonObject();
+            FirebaseJsonData jsonData;
+            for (int i = 1; i <= 8; i++) {
+              String key = "relay" + String(i);
+              json.get(jsonData, key);
+              if (jsonData.success) {
+                int status = jsonData.intValue;
+                digitalWrite(relayPins[i - 1], status == 1 ? LOW : HIGH);
               }
             }
           }
