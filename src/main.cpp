@@ -31,6 +31,9 @@ unsigned long waktuDetakTerakhir = 0;
 // variabel timer jeda pasang ulang stream
 unsigned long waktuCobaStreamTerakhir = 0;
 
+// variabel baru buat timer auto heal lima detik
+unsigned long waktuAutoHealTerakhir = 0;
+
 // variabel buat nyimpen menit terakhir dicek
 int menitTerakhirDicek = -1;
 
@@ -134,9 +137,10 @@ void loop() {
       waktuDetakTerakhir = waktuSekarang;
       struct tm timeinfo;
       if (getLocalTime(&timeinfo)) {
-        // proteksi anti halusinasi: mastiin tahun udah sinkron ke 2024 ke atas (tm_year dihitung dari 1900, 2024 = 124)
+        // proteksi anti halusinasi: mastiin tahun udah sinkron ke 2024 ke atas
         if (timeinfo.tm_year >= 124) {
           if (timeinfo.tm_min != menitTerakhirDicek) {
+            // tarik data jadwal kyak biasa
             if (Firebase.RTDB.getJSON(&fbdoJadwal, "/jadwal")) {
               FirebaseJson &jsonJadwal = fbdoJadwal.jsonObject();
               FirebaseJsonData dataAktif, dataJamNyala, dataMenitNyala, dataJamMati, dataMenitMati, dataHari;
@@ -167,7 +171,22 @@ void loop() {
         }
       }
     }
+    // fitur auto heal khusus jalan tiap 5 detik buat anti spam dan anti skip
+    if (streamTerpasang && (waktuSekarang - waktuAutoHealTerakhir >= 5000)) {
+      waktuAutoHealTerakhir = waktuSekarang;
+      if (Firebase.RTDB.getJSON(&fbdoJadwal, "/stopkontak")) {
+        FirebaseJson &jsonAwal = fbdoJadwal.jsonObject();
+        FirebaseJsonData dataAwal;
+        for (int i = 1; i <= 8; i++) {
+          jsonAwal.get(dataAwal, "relay" + String(i));
+          if (dataAwal.success) {
+            int targetState = dataAwal.intValue == 1 ? LOW : HIGH;
+            digitalWrite(relayPins[i - 1], targetState);
+          }
+        }
+      }
+    }
   }
-  // ngasih napas satu milidetik ke rtos esp32 biar hardware watchdog ngga aktiff trus bikin chip awet dingin
+  // ngasih napas satu milidetik ke rtos esp32 biar hardware watchdog ngga marah trus bikin chip awet dingin
   delay(1);
 }

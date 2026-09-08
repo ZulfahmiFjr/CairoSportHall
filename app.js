@@ -412,11 +412,19 @@ function initLampCards() {
         btn.className = 'btn btn-hidupkan';
         btn.innerText = 'Hidupkan';
 
-        // lempar data ke firebase pas tombol saklarnya diklik
+        // lempar data ke firebase pas tombol saklarnya diklik trus kasih anti spam
         btn.addEventListener('click', () => {
-            if (!isOnline) return;
+            if (!isOnline || btn.disabled) return;
             const statusSekarang = btn.classList.contains('btn-matikan') ? 0 : 1;
-            set(ref(db, `stopkontak/relay${i}`), statusSekarang);
+            // bekuin tombol sebentar biar ngga dispam cetak cetek
+            btn.disabled = true;
+            btn.innerText = 'Tunggu...';
+            set(ref(db, `stopkontak/relay${i}`), statusSekarang).finally(() => {
+                // kasih jeda delapan ratus milidetik sebelum bisa diklik lagi
+                setTimeout(() => {
+                    btn.disabled = false;
+                }, 800);
+            });
         });
 
         card.appendChild(headerRow);
