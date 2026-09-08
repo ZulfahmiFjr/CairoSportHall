@@ -59,32 +59,43 @@ void setup() {
 }
 
 void loop() {
+  // pantau status wifi seketika biar ngga ada soket bengong saat hotspot mati
+  if (WiFi.status() != WL_CONNECTED) {
+    if (streamTerpasang) {
+      streamTerpasang = false;
+      fbdoStream.closeSession();
+    }
+    return;
+  }
   if (Firebase.ready()) {
     unsigned long waktuSekarang = millis();
-    // pasang stream pertama kali sehabis token ready trus sinkronkan status saklar fisik
+    // pasang stream seketika pas wifi nyambung trus sinkronkan fisik relay sebelum kirim detak jantung
     if (!streamTerpasang) {
       if (Firebase.RTDB.beginStream(&fbdoStream, "/stopkontak")) {
         streamTerpasang = true;
-        Serial.println("jalur stream aktif!");
-        // sinkronisasi status relay fisik langsung dari firebase saat baru nyambung
+        Serial.println("jalur stream aktif dan sinkronisasi!");
+        // tarik data kondisi terbaru dan terapkan ke relay fisik dengan proteksi digitalread
         if (Firebase.RTDB.getJSON(&fbdoJadwal, "/stopkontak")) {
           FirebaseJson &jsonAwal = fbdoJadwal.jsonObject();
           FirebaseJsonData dataAwal;
           for (int i = 1; i <= 8; i++) {
             jsonAwal.get(dataAwal, "relay" + String(i));
             if (dataAwal.success) {
-              digitalWrite(relayPins[i - 1], dataAwal.intValue == 1 ? LOW : HIGH);
+              int targetState = dataAwal.intValue == 1 ? LOW : HIGH;
+              if (digitalRead(relayPins[i - 1]) != targetState) {
+                digitalWrite(relayPins[i - 1], targetState);
+              }
             }
           }
         }
-        // langsung tembak detak jantung pertama biar status di web berubah hijau instan
+        // tembak heartbeat pertama tepat setelah relay fisik sukses sinkron
         Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/heartbeat", waktuSekarang);
         waktuDetakTerakhir = waktuSekarang;
       } else {
         Serial.println("gagal pasang stream: " + fbdoStream.errorReason());
       }
     }
-    // baca stream realtime dan auto recovery kalau putus
+    // baca event stream realtime
     if (streamTerpasang) {
       if (!Firebase.RTDB.readStream(&fbdoStream)) {
         if (fbdoStream.httpCode() <= 0 && (waktuSekarang - waktuCobaStreamTerakhir >= 3000)) {
@@ -97,8 +108,10 @@ void loop() {
           if (streamPath.startsWith("/relay")) {
             int relayIndex = streamPath.substring(6).toInt();
             if (relayIndex >= 1 && relayIndex <= 8) {
-              int status = fbdoStream.intData();
-              digitalWrite(relayPins[relayIndex - 1], status == 1 ? LOW : HIGH);
+              int targetState = fbdoStream.intData() == 1 ? LOW : HIGH;
+              if (digitalRead(relayPins[relayIndex - 1]) != targetState) {
+                digitalWrite(relayPins[relayIndex - 1], targetState);
+              }
             }
           } else if (streamPath == "/") {
             if (fbdoStream.dataType() == "json") {
@@ -108,8 +121,10 @@ void loop() {
                 String key = "relay" + String(i);
                 json.get(jsonData, key);
                 if (jsonData.success) {
-                  int status = jsonData.intValue;
-                  digitalWrite(relayPins[i - 1], status == 1 ? LOW : HIGH);
+                  int targetState = jsonData.intValue == 1 ? LOW : HIGH;
+                  if (digitalRead(relayPins[i - 1]) != targetState) {
+                    digitalWrite(relayPins[i - 1], targetState);
+                  }
                 }
               }
             }
@@ -117,8 +132,8 @@ void loop() {
         }
       }
     }
-    // detak jantung gesit tiap 3 detik dan cek jadwal otomatis
-    if (waktuSekarang - waktuDetakTerakhir >= 3000) {
+    // detak jantung periodik cuma boleh jalan kalau stream sudah terpasang
+    if (streamTerpasang && (waktuSekarang - waktuDetakTerakhir >= 3000)) {
       Firebase.RTDB.setInt(&fbdoHeartbeat, "/stopkontak/heartbeat", waktuSekarang);
       waktuDetakTerakhir = waktuSekarang;
       struct tm timeinfo;
