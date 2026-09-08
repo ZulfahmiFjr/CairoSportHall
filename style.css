@@ -1484,6 +1484,20 @@ h1 {
         padding: 24px 20px;
     }
 
+    .toggle-text-wrap {
+        white-space: nowrap;
+    }
+
+    .toggle-text {
+        font-size: 0.86rem;
+        white-space: nowrap;
+    }
+
+    .toggle-subtext {
+        font-size: 0.67rem;
+        white-space: nowrap;
+    }
+
     .time-grid {
         grid-template-columns: 1fr;
         gap: 10px;
