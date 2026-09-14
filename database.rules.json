@@ -1,0 +1,61 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    "command": {
+      "$relay": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.hasChildren(['state', 'seq', 'updatedAt', 'source']) && newData.child('state').isNumber() && (newData.child('state').val() == 0 || newData.child('state').val() == 1) && newData.child('seq').isNumber() && newData.child('updatedAt').isNumber() && newData.child('source').isString()"
+      }
+    },
+    "status": {
+      "online": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.isBoolean()"
+      },
+      "lastSeen": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.isNumber()"
+      },
+      "heartbeat": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.isNumber()"
+      },
+      "$relay": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.hasChildren(['state', 'ackSeq', 'updatedAt']) && newData.child('state').isNumber() && (newData.child('state').val() == 0 || newData.child('state').val() == 1) && newData.child('ackSeq').isNumber() && newData.child('updatedAt').isNumber()"
+      }
+    },
+    "stopkontak": {
+      "heartbeat": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.isNumber()"
+      },
+      "$relay": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.isNumber() && (newData.val() == 0 || newData.val() == 1)"
+      }
+    },
+    "jadwal": {
+      ".write": "auth != null && auth.token.email == 'admin@cairo.com'"
+    },
+    "nama_saklar": {
+      "$relay": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 30)"
+      }
+    },
+    "sessions": {
+      "$uid": {
+        "$session": {
+          ".write": "auth != null && (auth.uid == $uid || auth.token.email == 'op@cairo.com' || auth.token.email == 'admin@cairo.com')"
+        }
+      }
+    },
+    "activity_logs": {
+      "$log": {
+        ".write": "auth != null && auth.token.email == 'admin@cairo.com'",
+        ".validate": "newData.hasChildren(['createdAt', 'relayId', 'switchName', 'state', 'actionText', 'actorUsername', 'actorRole']) && newData.child('createdAt').isNumber() && newData.child('relayId').isNumber() && newData.child('switchName').isString() && newData.child('state').isNumber() && (newData.child('state').val() == 0 || newData.child('state').val() == 1)"
+      }
+    }
+  }
+}

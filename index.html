@@ -11,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- nyambungin file cssnyaa kesini -->
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="op.css">
   <link rel="icon" type="image/png" href="cairo.png">
 </head>
 
@@ -58,6 +59,102 @@
     </div>
     <div class="grid-container" id="saklar-container">
       <!-- tombolnyaa bakal digenerate otomatis pakai javascript -->
+    </div>
+  </div>
+
+  <!-- panel khusus role op untuk memantau device login dan log saklar -->
+  <div id="op-dashboard-container">
+    <div class="top-bar">
+      <div class="top-bar-brand">
+        <img src="cairo.png" alt="Cairo Sport Hall" class="app-corner-logo">
+      </div>
+      <button class="btn-logout" id="btn-op-logout">Keluar</button>
+    </div>
+
+    <div class="op-shell">
+      <section class="op-hero-panel">
+        <div>
+          <p class="op-kicker">Operator Monitor</p>
+          <h1 class="op-title">Log Akses & Aktivitas Saklar</h1>
+          <p class="op-desc">Pantau device yang sedang login, lihat perubahan ON/OFF saklar, dan keluarkan sesi admin atau operator dari satu tempat.</p>
+        </div>
+        <div class="op-profile-row">
+          <div class="op-profile-pill">Username <span id="op-username">-</span></div>
+          <div class="op-profile-pill">Role <span id="op-role">-</span></div>
+        </div>
+      </section>
+
+      <div class="op-summary-grid">
+        <div class="op-summary-item">
+          <span class="op-summary-label">Device Aktif</span>
+          <span class="op-summary-value" id="op-session-count">0</span>
+        </div>
+        <div class="op-summary-item">
+          <span class="op-summary-label">Log Terbaru</span>
+          <span class="op-summary-value" id="op-log-count">0</span>
+        </div>
+        <div class="op-summary-item">
+          <span class="op-summary-label">Koneksi</span>
+          <span id="op-conn-status" class="connection-status status-offline">Firebase: Mengecek...</span>
+        </div>
+      </div>
+
+      <section class="op-table-panel">
+        <div class="op-panel-header">
+          <div>
+            <h2 class="op-panel-title">Device Login</h2>
+            <p class="op-panel-desc">Daftar sesi admin dan operator yang tercatat dari browser yang sedang atau baru saja aktif.</p>
+          </div>
+        </div>
+        <div class="op-table-wrap">
+          <table class="op-table">
+            <thead>
+              <tr>
+                <th>Akun</th>
+                <th>Role</th>
+                <th>Device</th>
+                <th>Login</th>
+                <th>Aktif Terakhir</th>
+                <th>Status</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="session-table-body">
+              <tr>
+                <td colspan="7" class="op-empty-cell">Memuat data device...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="op-table-panel">
+        <div class="op-panel-header">
+          <div>
+            <h2 class="op-panel-title">Log Perubahan Saklar</h2>
+            <p class="op-panel-desc">Riwayat perubahan ON/OFF yang sudah terkonfirmasi dari status fisik relay.</p>
+          </div>
+        </div>
+        <div class="op-table-wrap">
+          <table class="op-table">
+            <thead>
+              <tr>
+                <th>Waktu</th>
+                <th>Saklar</th>
+                <th>Perubahan</th>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Device</th>
+              </tr>
+            </thead>
+            <tbody id="activity-log-table-body">
+              <tr>
+                <td colspan="6" class="op-empty-cell">Memuat log saklar...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -139,6 +236,7 @@
 
   <!-- manggil script jsnyaa pakai tipe module biar import firebasenyaa jalan -->
   <script type="module" src="app.js"></script>
+  <script type="module" src="op.js"></script>
 </body>
 
 </html>
