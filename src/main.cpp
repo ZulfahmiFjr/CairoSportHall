@@ -1,3 +1,6 @@
+
+
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Firebase_ESP_Client.h>
@@ -20,7 +23,7 @@ FirebaseAuth auth;
 FirebaseConfig config;
 
 // daftarpin esp32 buat disambungin kerelay in1 sampe in8
-const int relayPins[8] = {2, 12, 14, 27, 26, 25, 33, 32};
+const int relayPins[8] = {4, 16, 14, 27, 26, 25, 33, 32};
 
 // variabel status stream biar ngga bentrok diawal
 bool streamTerpasang = false;
