@@ -15,12 +15,10 @@ const firebaseConfig = {
     measurementId: "G-0PP7BPGX9G"
 };
 
-// nyalain layanan firebase sama authnyaa juga
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const auth = getAuth(app);
 
-// siapin semua elemen html yang mau diotak atik
 const loginContainer = document.getElementById('login-container');
 const dashboardContainer = document.getElementById('dashboard-container');
 const btnLogin = document.getElementById('btn-login');
@@ -32,7 +30,6 @@ const container = document.getElementById('saklar-container');
 const connStatusEl = document.getElementById('conn-status');
 const deviceStatusEl = document.getElementById('device-status');
 
-// elemen buat ngatur popup jadwal / saklar
 const scheduleModal = document.getElementById('schedule-modal');
 const modalTitle = document.getElementById('modal-title');
 const modalSwitchName = document.getElementById('modal-switch-name');
@@ -45,7 +42,6 @@ const btnSaveSchedule = document.getElementById('btn-save-schedule');
 const scheduleFieldsGroup = document.getElementById('schedule-fields-group');
 const toggleSubtext = document.getElementById('toggle-subtext');
 
-// elemen buat popup ubah nama saklar oleh admin
 const editNameModal = document.getElementById('edit-name-modal');
 const editNameTitle = document.getElementById('edit-name-title');
 const editNameDesc = document.getElementById('edit-name-desc');
@@ -53,34 +49,95 @@ const inputSwitchName = document.getElementById('input-switch-name');
 const btnCancelEditName = document.getElementById('btn-cancel-edit-name');
 const btnSaveEditName = document.getElementById('btn-save-edit-name');
 
-const DEVICE_STARTUP_GRACE_MS = 7000;
-const DEVICE_OFFLINE_TIMEOUT_MS = 15000;
-const COMMAND_REENABLE_DELAY_MS = 900;
+const DEVICE_STARTUP_GRACE_MS = 3000;
+const DEVICE_OFFLINE_TIMEOUT_MS = 7000;
+const COMMAND_ACK_TIMEOUT_MS = 3000;
+const COMMAND_REENABLE_DELAY_MS = 300;
 
 let relayJadwalAktif = 0;
 let relayEditNamaAktif = 0;
 let isOnline = navigator.onLine;
+let isDeviceOnline = false;
 let waktuDetakTerakhir = 0;
 let waktuLogin = 0;
 let dbUnsubscribes = [];
 let heartbeatIntervalId = null;
+let countdownIntervalId = null;
+let deviceStatusIntervalId = null;
+let toastTimeout = null;
+
 const lampCards = [];
 const namaSaklarMap = {};
-for (let i = 1; i <= 8; i++) {
-    namaSaklarMap[i] = `Saklar ${i}`;
-}
 const jadwalMap = {};
 const statusRelayMap = {};
-let countdownIntervalId = null;
+const statusKnownMap = {};
+const commandSeqMap = {};
+const pendingCommandMap = {};
+const pendingTimeoutMap = {};
 
-function renderRelayStatus(relayId, data) {
+for (let i = 1; i <= 8; i++) {
+    namaSaklarMap[i] = `Saklar ${i}`;
+    statusRelayMap[i] = 0;
+    commandSeqMap[i] = 0;
+}
+
+function nextCommandSeq(relayId) {
+    const epochSeconds = Math.floor(Date.now() / 1000);
+    return Math.max(epochSeconds, (commandSeqMap[relayId] || 0) + 1);
+}
+
+function clearPendingCommand(relayId) {
+    if (pendingTimeoutMap[relayId]) {
+        clearTimeout(pendingTimeoutMap[relayId]);
+        pendingTimeoutMap[relayId] = null;
+    }
+    pendingCommandMap[relayId] = null;
+}
+
+function setPendingRelayUI(relayId, targetState, seq) {
     const el = lampCards[relayId];
     if (!el) return;
-    const isOn = data === 1;
-    statusRelayMap[relayId] = isOn ? 1 : 0;
+    const targetLabel = targetState === 1 ? 'ON' : 'OFF';
+    el.btn.disabled = true;
+    el.btn.innerText = 'Menunggu alat...';
+    el.statusText.innerText = `Perintah ${targetLabel} terkirim, menunggu konfirmasi alat`;
+    el.statusBadge.className = 'status-badge badge-loading';
+    el.statusBadge.innerHTML = '<span class="badge-dot"></span><span class="badge-text">...</span>';
+
+    if (pendingTimeoutMap[relayId]) clearTimeout(pendingTimeoutMap[relayId]);
+    pendingTimeoutMap[relayId] = setTimeout(() => {
+        const pending = pendingCommandMap[relayId];
+        if (!pending || pending.seq !== seq) return;
+        showToast(`Saklar ${relayId} belum dikonfirmasi alat. Cek koneksi ESP32.`, 'warning', 4200);
+        renderRelayStatus(relayId, statusRelayMap[relayId], commandSeqMap[relayId], true);
+    }, COMMAND_ACK_TIMEOUT_MS);
+}
+
+function renderRelayStatus(relayId, data, ackSeq = 0, keepPending = false) {
+    const el = lampCards[relayId];
+    if (!el) return;
+
+    const state = data === 1 ? 1 : 0;
+    const seq = Number.isFinite(ackSeq) ? ackSeq : 0;
+    statusKnownMap[relayId] = true;
+    statusRelayMap[relayId] = state;
+    commandSeqMap[relayId] = Math.max(commandSeqMap[relayId] || 0, seq);
+
+    const pending = pendingCommandMap[relayId];
+    const isAcked = pending && seq >= pending.seq && state === pending.targetState;
+    if (isAcked) {
+        clearPendingCommand(relayId);
+    } else if (pending && !keepPending) {
+        setPendingRelayUI(relayId, pending.targetState, pending.seq);
+        updateCardScheduleUI(relayId);
+        return;
+    }
+
+    const isOn = state === 1;
     el.btn.className = isOn ? 'btn btn-matikan' : 'btn btn-hidupkan';
     el.btn.innerText = isOn ? 'Matikan' : 'Hidupkan';
-    el.statusText.innerText = isOn ? 'Saklar saat ini sedang hidup' : 'Saklar saat ini sedang mati';
+    el.btn.disabled = !isOnline;
+    el.statusText.innerText = isOn ? 'Saklar fisik terkonfirmasi hidup' : 'Saklar fisik terkonfirmasi mati';
     el.statusBadge.className = isOn ? 'status-badge badge-on' : 'status-badge badge-off';
     el.statusBadge.innerHTML = isOn
         ? '<span class="badge-dot"></span><span class="badge-text">ON</span>'
@@ -88,13 +145,15 @@ function renderRelayStatus(relayId, data) {
     updateCardScheduleUI(relayId);
 }
 
-// nah ini fungsi buat ngatur tampilan status koneksi internet/firebase
 function updateConnectionStatus() {
     const buttons = document.querySelectorAll('.lamp-card .btn');
     if (isOnline) {
         connStatusEl.innerText = "Koneksi Anda: Terhubung";
         connStatusEl.className = "connection-status status-online";
-        buttons.forEach(btn => btn.disabled = false);
+        buttons.forEach((btn) => {
+            const relayId = Number(btn.id.replace('btn-', ''));
+            btn.disabled = Boolean(pendingCommandMap[relayId]);
+        });
     } else {
         connStatusEl.innerText = "Koneksi Anda: Terputus";
         connStatusEl.className = "connection-status status-offline";
@@ -102,7 +161,6 @@ function updateConnectionStatus() {
     }
 }
 
-// pasang kuping buat dengerin perubahan koneksi internet di browser
 window.addEventListener('online', () => {
     isOnline = true;
     updateConnectionStatus();
@@ -112,36 +170,30 @@ window.addEventListener('offline', () => {
     updateConnectionStatus();
 });
 
-// ngecek status koneksi langsung ke firebase pakai jalur khusus connected
 const connectedRef = ref(db, ".info/connected");
 onValue(connectedRef, (snap) => {
     isOnline = snap.val() === true && navigator.onLine;
     updateConnectionStatus();
 });
 
-// fungsi buat memperbarui tampilan status alat ESP32
 function updateDeviceStatus() {
     if (!waktuDetakTerakhir) {
+        isDeviceOnline = false;
         if (Date.now() - waktuLogin < DEVICE_STARTUP_GRACE_MS) {
             deviceStatusEl.innerText = "Koneksi Alat: Mengecek...";
-            deviceStatusEl.className = "connection-status status-offline";
-            return;
+        } else {
+            deviceStatusEl.innerText = "Koneksi Alat: Terputus";
         }
-        deviceStatusEl.innerText = "Koneksi Alat: Terputus";
         deviceStatusEl.className = "connection-status status-offline";
         return;
     }
+
     const selisihWaktu = Date.now() - waktuDetakTerakhir;
-    if (selisihWaktu > DEVICE_OFFLINE_TIMEOUT_MS) {
-        deviceStatusEl.innerText = "Koneksi Alat: Terputus";
-        deviceStatusEl.className = "connection-status status-offline";
-    } else {
-        deviceStatusEl.innerText = "Koneksi Alat: Terhubung";
-        deviceStatusEl.className = "connection-status status-online";
-    }
+    isDeviceOnline = selisihWaktu <= DEVICE_OFFLINE_TIMEOUT_MS;
+    deviceStatusEl.innerText = isDeviceOnline ? "Koneksi Alat: Terhubung" : "Koneksi Alat: Terputus";
+    deviceStatusEl.className = isDeviceOnline ? "connection-status status-online" : "connection-status status-offline";
 }
 
-// fungsi buat ngelepas semua listener realtime database saat keluar
 function stopDatabaseListeners() {
     dbUnsubscribes.forEach((unsub) => {
         try {
@@ -151,24 +203,22 @@ function stopDatabaseListeners() {
         }
     });
     dbUnsubscribes = [];
-    if (heartbeatIntervalId) {
-        clearInterval(heartbeatIntervalId);
-        heartbeatIntervalId = null;
-    }
-    if (countdownIntervalId) {
-        clearInterval(countdownIntervalId);
-        countdownIntervalId = null;
-    }
+    [heartbeatIntervalId, countdownIntervalId, deviceStatusIntervalId].forEach((id) => {
+        if (id) clearInterval(id);
+    });
+    heartbeatIntervalId = null;
+    countdownIntervalId = null;
+    deviceStatusIntervalId = null;
+    for (let i = 1; i <= 8; i++) clearPendingCommand(i);
 }
 
-// fungsi buat mulai mendengarkan realtime database setelah user terautentikasi
 function startDatabaseListeners() {
     stopDatabaseListeners();
     waktuLogin = Date.now();
     waktuDetakTerakhir = 0;
     updateDeviceStatus();
-    // 1. Pantau detak jantung ESP32
-    const heartbeatRef = ref(db, "stopkontak/heartbeat");
+
+    const heartbeatRef = ref(db, "status/heartbeat");
     const unsubHeartbeat = onValue(heartbeatRef, (snapshot) => {
         if (snapshot.exists()) {
             waktuDetakTerakhir = Date.now();
@@ -178,17 +228,41 @@ function startDatabaseListeners() {
         console.error("Kesalahan listener heartbeat:", error);
     });
     dbUnsubscribes.push(unsubHeartbeat);
-    // 2. Pantau status 8 saklar / relay
+
+    const onlineRef = ref(db, "status/online");
+    const unsubOnline = onValue(onlineRef, (snapshot) => {
+        if (snapshot.val() === true) {
+            waktuDetakTerakhir = Date.now();
+            updateDeviceStatus();
+        }
+    }, (error) => {
+        console.error("Kesalahan listener online alat:", error);
+    });
+    dbUnsubscribes.push(unsubOnline);
+
     for (let i = 1; i <= 8; i++) {
-        const relayRef = ref(db, `stopkontak/relay${i}`);
-        const unsubRelay = onValue(relayRef, (snapshot) => {
-            renderRelayStatus(i, snapshot.val());
+        const statusRef = ref(db, `status/relay${i}`);
+        const unsubStatus = onValue(statusRef, (snapshot) => {
+            const value = snapshot.val();
+            if (value && typeof value === 'object') {
+                renderRelayStatus(i, value.state, value.ackSeq || 0);
+            }
         }, (error) => {
-            console.error(`Kesalahan listener relay${i}:`, error);
+            console.error(`Kesalahan listener status relay${i}:`, error);
         });
-        dbUnsubscribes.push(unsubRelay);
+        dbUnsubscribes.push(unsubStatus);
+
+        const legacyRelayRef = ref(db, `stopkontak/relay${i}`);
+        const unsubLegacyRelay = onValue(legacyRelayRef, (snapshot) => {
+            if (!statusKnownMap[i]) {
+                renderRelayStatus(i, snapshot.val(), 0);
+            }
+        }, (error) => {
+            console.error(`Kesalahan listener legacy relay${i}:`, error);
+        });
+        dbUnsubscribes.push(unsubLegacyRelay);
     }
-    // 3. Pantau kustomisasi nama saklar realtime
+
     const namaRef = ref(db, "nama_saklar");
     const unsubNama = onValue(namaRef, (snapshot) => {
         const data = snapshot.val() || {};
@@ -209,7 +283,7 @@ function startDatabaseListeners() {
         console.error("Kesalahan listener nama_saklar:", error);
     });
     dbUnsubscribes.push(unsubNama);
-    // 4. Pantau status jadwal otomatis untuk semua saklar realtime
+
     const jadwalRef = ref(db, "jadwal");
     const unsubJadwal = onValue(jadwalRef, (snapshot) => {
         const data = snapshot.val() || {};
@@ -221,34 +295,27 @@ function startDatabaseListeners() {
         console.error("Kesalahan listener jadwal:", error);
     });
     dbUnsubscribes.push(unsubJadwal);
-    // 5. Interval rutin cek heartbeat ESP32
-    heartbeatIntervalId = setInterval(updateDeviceStatus, 1000);
-    // 6. Interval rutin hitung mundur jadwal tiap 1 detik murni jalan di sisi client
+
+    deviceStatusIntervalId = setInterval(updateDeviceStatus, 500);
+    heartbeatIntervalId = setInterval(updateConnectionStatus, 1000);
     countdownIntervalId = setInterval(() => {
         for (let i = 1; i <= 8; i++) {
-            if (jadwalMap[i] && jadwalMap[i].aktif) {
-                updateCardScheduleUI(i);
-            }
+            if (jadwalMap[i] && jadwalMap[i].aktif) updateCardScheduleUI(i);
         }
     }, 1000);
 }
 
-// format dua digit angka
 function formatTwoDigits(num) {
     return String(num).padStart(2, '0');
 }
 
-// hitung perkiraan waktu pemicu berikutnya (countdown)
 function hitungEstimasiJadwal(jadwalData, currentStatus) {
-    if (!jadwalData || !jadwalData.aktif) {
-        return { aktif: false, subtext: 'Jadwal Nonaktif' };
-    }
+    if (!jadwalData || !jadwalData.aktif) return { aktif: false, subtext: 'Jadwal Nonaktif' };
     const { jamNyala, menitNyala, jamMati, menitMati } = jadwalData;
     const hasTimeOn = jamNyala !== undefined && menitNyala !== undefined && jamNyala >= 0;
     const hasTimeOff = jamMati !== undefined && menitMati !== undefined && jamMati >= 0;
-    if (!hasTimeOn && !hasTimeOff) {
-        return { aktif: false, subtext: 'Waktu belum diatur' };
-    }
+    if (!hasTimeOn && !hasTimeOff) return { aktif: false, subtext: 'Waktu belum diatur' };
+
     let hasDay = false;
     for (let d = 0; d <= 6; d++) {
         if (jadwalData[`hari${d}`]) {
@@ -256,45 +323,30 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
             break;
         }
     }
-    if (!hasDay) {
-        return { aktif: false, subtext: 'Hari belum dipilih' };
-    }
+    if (!hasDay) return { aktif: false, subtext: 'Hari belum dipilih' };
+
     const timeRange = `${hasTimeOn ? formatTwoDigits(jamNyala) + ':' + formatTwoDigits(menitNyala) : '--:--'} - ${hasTimeOff ? formatTwoDigits(jamMati) + ':' + formatTwoDigits(menitMati) : '--:--'}`;
     const now = new Date();
     const candidates = [];
-    // Cari jadwal pemicu dalam 7 hari ke depan
     for (let offset = 0; offset <= 7; offset++) {
         const targetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
         const dayOfWeek = targetDate.getDay();
         if (jadwalData[`hari${dayOfWeek}`]) {
             if (hasTimeOn) {
                 const dateOn = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), jamNyala, menitNyala, 0);
-                if (dateOn.getTime() > now.getTime()) {
-                    candidates.push({ type: 'ON', time: dateOn });
-                }
+                if (dateOn.getTime() > now.getTime()) candidates.push({ type: 'ON', time: dateOn });
             }
             if (hasTimeOff) {
                 const dateOff = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), jamMati, menitMati, 0);
-                if (dateOff.getTime() > now.getTime()) {
-                    candidates.push({ type: 'OFF', time: dateOff });
-                }
+                if (dateOff.getTime() > now.getTime()) candidates.push({ type: 'OFF', time: dateOff });
             }
         }
     }
-    if (candidates.length === 0) {
-        return { aktif: true, timeRange, countdownText: 'Menunggu siklus berikutnya' };
-    }
+    if (candidates.length === 0) return { aktif: true, timeRange, countdownText: 'Menunggu siklus berikutnya' };
     candidates.sort((a, b) => a.time.getTime() - b.time.getTime());
-    // Cari event yang paling relevan dengan kondisi saklar saat ini
-    let nextEvent = null;
-    if (currentStatus === 1) {
-        // Saklar sedang hidup: prioritaskan info kapan akan mati
-        nextEvent = candidates.find(c => c.type === 'OFF') || candidates[0];
-    } else {
-        // Saklar sedang mati: prioritaskan info kapan akan hidup
-        nextEvent = candidates.find(c => c.type === 'ON') || candidates[0];
-    }
-    // kalkulasi sisa waktu murni ke detik
+    const nextEvent = currentStatus === 1
+        ? (candidates.find(c => c.type === 'OFF') || candidates[0])
+        : (candidates.find(c => c.type === 'ON') || candidates[0]);
     const diffMs = nextEvent.time.getTime() - now.getTime();
     const totalSecs = Math.max(0, Math.floor(diffMs / 1000));
     const diffMins = Math.floor(totalSecs / 60);
@@ -302,7 +354,6 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
     const actionText = nextEvent.type === 'ON' ? 'Hidup' : 'Mati';
     const icon = nextEvent.type === 'ON' ? '⚡' : '🌙';
     let countdownText = '';
-    // logika tampilan teksnyaa
     if (diffMins === 0) {
         countdownText = `${icon} ${actionText} dalam ${remSecs} detik`;
     } else if (diffMins < 60) {
@@ -311,29 +362,23 @@ function hitungEstimasiJadwal(jadwalData, currentStatus) {
         const diffHours = Math.floor(diffMins / 60);
         const remMins = diffMins % 60;
         if (diffHours < 24) {
-            countdownText = remMins > 0
-                ? `${icon} ${actionText} dalam ${diffHours} jam ${remMins} menit`
-                : `${icon} ${actionText} dalam ${diffHours} jam`;
+            countdownText = remMins > 0 ? `${icon} ${actionText} dalam ${diffHours} jam ${remMins} menit` : `${icon} ${actionText} dalam ${diffHours} jam`;
         } else {
             const diffDays = Math.floor(diffHours / 24);
             const remHours = diffHours % 24;
             const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
             const targetDay = dayNames[nextEvent.time.getDay()];
-            if (remHours > 0) {
-                countdownText = `${icon} ${actionText}: ${targetDay} (${diffDays} hari ${remHours} jam lagi)`;
-            } else {
-                countdownText = `${icon} ${actionText}: ${targetDay} (${diffDays} hari lagi)`;
-            }
+            countdownText = remHours > 0
+                ? `${icon} ${actionText}: ${targetDay} (${diffDays} hari ${remHours} jam lagi)`
+                : `${icon} ${actionText}: ${targetDay} (${diffDays} hari lagi)`;
         }
     }
     return { aktif: true, timeRange, countdownText };
 }
 
-// perbarui UI box jadwal di kartu saklar
 function updateCardScheduleUI(relayId) {
     const el = lampCards[relayId];
     if (!el || !el.scheduleBox) return;
-
     const jadwalData = jadwalMap[relayId];
     const currentStatus = statusRelayMap[relayId] !== undefined ? statusRelayMap[relayId] : 0;
     const estimasi = hitungEstimasiJadwal(jadwalData, currentStatus);
@@ -347,40 +392,32 @@ function updateCardScheduleUI(relayId) {
             </div>
             <div class="schedule-countdown-row">
                 <span class="schedule-countdown-text">${estimasi.countdownText}</span>
-            </div>
-        `;
+            </div>`;
     } else {
         el.scheduleBox.className = 'card-schedule-box inactive';
         el.scheduleBox.innerHTML = `
             <div class="schedule-box-header">
                 <span class="schedule-status-pill muted"><span class="pill-dot"></span>Manual</span>
                 <span class="schedule-time-range muted">${estimasi.subtext || 'Jadwal Nonaktif'}</span>
-            </div>
-        `;
+            </div>`;
     }
 }
 
-// fungsi buat membuat 8 kartu saklar sekali di awal
 function initLampCards() {
     container.innerHTML = '';
     for (let i = 1; i <= 8; i++) {
         const card = document.createElement('div');
         card.className = 'lamp-card';
-
         const headerRow = document.createElement('div');
         headerRow.className = 'card-header-row';
-
         const titleWrap = document.createElement('div');
         titleWrap.className = 'card-title-wrap';
-
         const title = document.createElement('h3');
         title.className = 'lamp-title';
         title.innerText = namaSaklarMap[i] || `Saklar ${i}`;
-
         const statusBadge = document.createElement('span');
         statusBadge.className = 'status-badge badge-loading';
         statusBadge.innerHTML = '<span class="badge-dot"></span><span class="badge-text">...</span>';
-
         titleWrap.appendChild(title);
         titleWrap.appendChild(statusBadge);
         headerRow.appendChild(titleWrap);
@@ -389,24 +426,15 @@ function initLampCards() {
         btnJadwal.className = 'btn-schedule';
         btnJadwal.innerText = '⚙️';
         btnJadwal.title = 'Konfigurasi Saklar';
-        btnJadwal.addEventListener('click', () => {
-            bukaModalJadwal(i);
-        });
+        btnJadwal.addEventListener('click', () => bukaModalJadwal(i));
         headerRow.appendChild(btnJadwal);
 
         const statusText = document.createElement('p');
         statusText.className = 'lamp-status-text';
-        statusText.innerText = 'Memuat status...';
-
+        statusText.innerText = 'Memuat status fisik...';
         const scheduleBox = document.createElement('div');
         scheduleBox.className = 'card-schedule-box inactive';
-        scheduleBox.innerHTML = `
-            <div class="schedule-box-header">
-                <span class="schedule-status-pill muted"><span class="pill-dot"></span>Manual</span>
-                <span class="schedule-time-range muted">Jadwal Nonaktif</span>
-            </div>
-        `;
-
+        scheduleBox.innerHTML = `<div class="schedule-box-header"><span class="schedule-status-pill muted"><span class="pill-dot"></span>Manual</span><span class="schedule-time-range muted">Jadwal Nonaktif</span></div>`;
         const btn = document.createElement('button');
         btn.id = `btn-${i}`;
         btn.className = 'btn btn-hidupkan';
@@ -416,19 +444,25 @@ function initLampCards() {
             if (!isOnline || btn.disabled) return;
             const previousStatus = statusRelayMap[i] === 1 ? 1 : 0;
             const targetStatus = previousStatus === 1 ? 0 : 1;
-            btn.disabled = true;
-            btn.innerText = 'Mengirim...';
+            const seq = nextCommandSeq(i);
+            commandSeqMap[i] = seq;
+            pendingCommandMap[i] = { targetState: targetStatus, seq };
+            setPendingRelayUI(i, targetStatus, seq);
 
-            set(ref(db, `stopkontak/relay${i}`), targetStatus).then(() => {
-                renderRelayStatus(i, targetStatus);
-            }).catch((error) => {
-                console.error(`Gagal mengubah relay${i}:`, error);
-                renderRelayStatus(i, previousStatus);
+            const commandData = {
+                state: targetStatus,
+                seq,
+                updatedAt: Date.now(),
+                source: 'web-dashboard'
+            };
+
+            set(ref(db, `command/relay${i}`), commandData).catch((error) => {
+                console.error(`Gagal mengirim command relay${i}:`, error);
+                clearPendingCommand(i);
+                renderRelayStatus(i, previousStatus, commandSeqMap[i], true);
                 showToast("Gagal mengirim perintah. Periksa koneksi internet atau Firebase.", "error");
             }).finally(() => {
-                setTimeout(() => {
-                    btn.disabled = !isOnline;
-                }, COMMAND_REENABLE_DELAY_MS);
+                setTimeout(() => updateConnectionStatus(), COMMAND_REENABLE_DELAY_MS);
             });
         });
 
@@ -437,7 +471,6 @@ function initLampCards() {
         card.appendChild(scheduleBox);
         card.appendChild(btn);
         container.appendChild(card);
-
         lampCards[i] = { card, title, statusBadge, btnJadwal, statusText, scheduleBox, btn };
     }
 }
@@ -459,10 +492,12 @@ onAuthStateChanged(auth, (user) => {
             namaSaklarMap[i] = `Saklar ${i}`;
             jadwalMap[i] = null;
             statusRelayMap[i] = 0;
+            statusKnownMap[i] = false;
+            commandSeqMap[i] = 0;
             const el = lampCards[i];
             if (el) {
                 el.title.innerText = `Saklar ${i}`;
-                el.statusText.innerText = 'Memuat status...';
+                el.statusText.innerText = 'Memuat status fisik...';
                 el.btn.className = 'btn btn-hidupkan';
                 el.btn.innerText = 'Hidupkan';
                 el.statusBadge.className = 'status-badge badge-loading';
@@ -532,15 +567,9 @@ passwordInput.addEventListener('keydown', (e) => {
 usernameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') passwordInput.focus();
 });
-usernameInput.addEventListener('input', () => {
-    loginError.style.display = 'none';
-});
-passwordInput.addEventListener('input', () => {
-    loginError.style.display = 'none';
-});
-btnLogout.addEventListener('click', () => {
-    signOut(auth);
-});
+usernameInput.addEventListener('input', () => loginError.style.display = 'none');
+passwordInput.addEventListener('input', () => loginError.style.display = 'none');
+btnLogout.addEventListener('click', () => signOut(auth));
 
 let initialScheduleData = {
     aktif: false,
@@ -570,9 +599,7 @@ function updateScheduleInputsState() {
         const dayEl = document.getElementById(`day-${i}`);
         if (dayEl) dayEl.disabled = !isAktif;
     }
-    if (scheduleFieldsGroup) {
-        scheduleFieldsGroup.classList.toggle('is-disabled', !isAktif);
-    }
+    if (scheduleFieldsGroup) scheduleFieldsGroup.classList.toggle('is-disabled', !isAktif);
     if (toggleSubtext) {
         toggleSubtext.innerText = isAktif ? 'Jadwal otomatis aktif' : 'Nyalakan untuk mengatur waktu & hari';
         toggleSubtext.className = isAktif ? 'toggle-subtext text-active' : 'toggle-subtext text-inactive';
@@ -595,7 +622,7 @@ function checkScheduleChanges() {
             hasScheduleChange = true;
         } else {
             for (let i = 0; i <= 6; i++) {
-                const initialDay = (initialScheduleData.days && initialScheduleData.days[i] !== undefined) ? initialScheduleData.days[i] : false;
+                const initialDay = initialScheduleData.days?.[i] ?? false;
                 if (document.getElementById(`day-${i}`).checked !== initialDay) {
                     hasScheduleChange = true;
                     break;
@@ -614,11 +641,8 @@ timeOn.addEventListener('input', checkScheduleChanges);
 timeOn.addEventListener('change', checkScheduleChanges);
 timeOff.addEventListener('input', checkScheduleChanges);
 timeOff.addEventListener('change', checkScheduleChanges);
-for (let i = 0; i <= 6; i++) {
-    document.getElementById(`day-${i}`).addEventListener('change', checkScheduleChanges);
-}
+for (let i = 0; i <= 6; i++) document.getElementById(`day-${i}`).addEventListener('change', checkScheduleChanges);
 
-let toastTimeout = null;
 function showToast(pesan, tipe = 'success', durasi = 3000) {
     const toastContainer = document.getElementById('toast-container');
     if (!toastContainer) return;
@@ -683,9 +707,7 @@ function bukaModalJadwal(relayId) {
     });
 }
 
-btnCancelSchedule.addEventListener('click', () => {
-    scheduleModal.style.display = 'none';
-});
+btnCancelSchedule.addEventListener('click', () => scheduleModal.style.display = 'none');
 
 btnSaveSchedule.addEventListener('click', () => {
     const anyTimeFilled = Boolean(timeOn.value || timeOff.value);
@@ -712,13 +734,7 @@ btnSaveSchedule.addEventListener('click', () => {
         jamMati = parseInt(partsOff[0]);
         menitMati = parseInt(partsOff[1]);
     }
-    const dataJadwal = {
-        aktif: scheduleActive.checked,
-        jamNyala,
-        menitNyala,
-        jamMati,
-        menitMati
-    };
+    const dataJadwal = { aktif: scheduleActive.checked, jamNyala, menitNyala, jamMati, menitMati };
     for (let i = 0; i <= 6; i++) dataJadwal[`hari${i}`] = document.getElementById(`day-${i}`).checked;
     btnSaveSchedule.innerText = 'Menyimpan...';
     btnSaveSchedule.disabled = true;
@@ -743,13 +759,9 @@ function checkEditNameChanges() {
     const rawVal = inputSwitchName.value.trim().replace(/[.#$\[\]\/]/g, '');
     const inputVal = rawVal.substring(0, 30);
     let hasChange = false;
-    if (inputVal === '') {
-        hasChange = !isCurrentDefault;
-    } else if (inputVal.toLowerCase() === defaultName.toLowerCase() && isCurrentDefault) {
-        hasChange = false;
-    } else {
-        hasChange = (inputVal !== currentName);
-    }
+    if (inputVal === '') hasChange = !isCurrentDefault;
+    else if (inputVal.toLowerCase() === defaultName.toLowerCase() && isCurrentDefault) hasChange = false;
+    else hasChange = inputVal !== currentName;
     btnSaveEditName.disabled = !hasChange;
 }
 
@@ -777,9 +789,7 @@ function bukaModalEditNama(relayId) {
     }, 50);
 }
 
-btnCancelEditName.addEventListener('click', () => {
-    editNameModal.style.display = 'none';
-});
+btnCancelEditName.addEventListener('click', () => editNameModal.style.display = 'none');
 
 btnSaveEditName.addEventListener('click', () => {
     if (btnSaveEditName.disabled) return;
@@ -809,10 +819,7 @@ btnSaveEditName.addEventListener('click', () => {
     });
 });
 
-btnEditSwitchName.addEventListener('click', () => {
-    bukaModalEditNama(relayJadwalAktif);
-});
-
+btnEditSwitchName.addEventListener('click', () => bukaModalEditNama(relayJadwalAktif));
 inputSwitchName.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
         if (!btnSaveEditName.disabled) btnSaveEditName.click();
