@@ -37,10 +37,12 @@ const opSessionCount = document.getElementById('op-session-count');
 const opLogCount = document.getElementById('op-log-count');
 const sessionTableBody = document.getElementById('session-table-body');
 const activityLogTableBody = document.getElementById('activity-log-table-body');
+const sessionAccountHeader = sessionTableBody?.closest('table')?.querySelector('thead th:first-child');
 
 const SESSION_HEARTBEAT_MS = 5000;
 const ACTIVE_SESSION_WINDOW_MS = 30000;
 const SESSION_KEY = 'cairo_session_id';
+const DEVICE_KEY = 'cairo_device_id';
 const relayStatusSeen = {};
 const namaSaklarMapOp = {};
 
@@ -51,6 +53,8 @@ let sessionHeartbeatId = null;
 let sessionForceLogoutUnsub = null;
 let roleUnsubscribes = [];
 let forcedLogoutActive = false;
+
+if (sessionAccountHeader) sessionAccountHeader.innerText = 'Device ID';
 
 for (let i = 1; i <= 8; i++) {
     namaSaklarMapOp[i] = `Saklar ${i}`;
@@ -63,6 +67,22 @@ function getSessionId() {
         localStorage.setItem(SESSION_KEY, sessionId);
     }
     return sessionId;
+}
+
+function getDeviceId() {
+    let deviceId = localStorage.getItem(DEVICE_KEY);
+    if (!deviceId) {
+        const bytes = new Uint8Array(3);
+        if (window.crypto?.getRandomValues) {
+            window.crypto.getRandomValues(bytes);
+        } else {
+            for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+        }
+        const suffix = Array.from(bytes).map((byte) => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+        deviceId = `CSH-${suffix}`;
+        localStorage.setItem(DEVICE_KEY, deviceId);
+    }
+    return deviceId;
 }
 
 function getUsername(user) {
@@ -84,8 +104,10 @@ function getBrowserName() {
 
 function getOperatingSystem() {
     const ua = navigator.userAgent;
-    if (/Android/i.test(ua)) return 'Android';
-    if (/iPhone|iPad|iPod/i.test(ua)) return 'iOS';
+    const androidMatch = ua.match(/Android\s([\d.]+)/i);
+    if (androidMatch) return `Android ${androidMatch[1]}`;
+    const iosMatch = ua.match(/OS\s([\d_]+)/i);
+    if (/iPhone|iPad|iPod/i.test(ua)) return `iOS ${iosMatch ? iosMatch[1].replace(/_/g, '.') : ''}`.trim();
     if (/Windows/i.test(ua)) return 'Windows';
     if (/Mac OS/i.test(ua)) return 'macOS';
     if (/Linux/i.test(ua)) return 'Linux';
@@ -99,12 +121,25 @@ function getDeviceType() {
     return 'Desktop';
 }
 
+function getDeviceModel() {
+    const ua = navigator.userAgent;
+    const androidModel = ua.match(/;\s*([^;()]+?)\s+Build\//i);
+    if (androidModel && androidModel[1]) {
+        const model = androidModel[1].trim();
+        return model.startsWith('SM-') ? `Samsung ${model}` : model;
+    }
+    if (/iPhone/i.test(ua)) return 'iPhone';
+    if (/iPad/i.test(ua)) return 'iPad';
+    return '';
+}
+
 function getDeviceInfo() {
     const type = getDeviceType();
     const browser = getBrowserName();
     const os = getOperatingSystem();
+    const model = getDeviceModel();
     return {
-        deviceName: `${type} ${os}`,
+        deviceName: model || `${type} ${os}`,
         browser,
         os,
         userAgent: navigator.userAgent
@@ -133,6 +168,14 @@ function escapeHtml(value) {
         .replace(/'/g, '&#039;');
 }
 
+function getSessionCreatedAt(session) {
+    return Number(session.createdAt || session.loginAt || 0);
+}
+
+function getSessionLastSeen(session) {
+    return Number(session.lastSeen || session.lastActive || 0);
+}
+
 function clearRoleListeners() {
     roleUnsubscribes.forEach((unsub) => {
         try {
@@ -153,10 +196,12 @@ function cleanupCurrentSession(markOfflineOnly = false) {
     }
     if (!currentSessionRef) return Promise.resolve();
 
+    const now = Date.now();
     const payload = {
         online: false,
-        lastActive: Date.now(),
-        logoutAt: Date.now()
+        lastSeen: now,
+        lastActive: now,
+        logoutAt: now
     };
 
     return update(currentSessionRef, payload).catch((error) => {
@@ -171,6 +216,7 @@ function setupSession(user) {
     currentSessionId = getSessionId();
     const username = getUsername(user);
     const role = getRole(user);
+    const deviceId = getDeviceId();
     const deviceInfo = getDeviceInfo();
 
     currentUserProfile = {
@@ -179,6 +225,7 @@ function setupSession(user) {
         role,
         email: user.email || '',
         sessionId: currentSessionId,
+        deviceId,
         ...deviceInfo
     };
 
@@ -188,14 +235,20 @@ function setupSession(user) {
         uid: user.uid,
         username,
         role,
-        email: user.email || '',
+        deviceId,
+        deviceName: deviceInfo.deviceName,
+        browser: deviceInfo.browser,
+        os: deviceInfo.os,
+        createdAt: now,
+        lastSeen: now,
+        online: true,
         sessionId: currentSessionId,
+        email: user.email || '',
         loginAt: now,
         lastActive: now,
-        online: true,
         forceLogout: false,
         logoutRequestedBy: '',
-        ...deviceInfo
+        userAgent: deviceInfo.userAgent
     };
 
     set(currentSessionRef, sessionPayload).catch((error) => {
@@ -203,15 +256,18 @@ function setupSession(user) {
     });
     onDisconnect(currentSessionRef).update({
         online: false,
+        lastSeen: Date.now(),
         lastActive: Date.now()
     });
 
     if (sessionHeartbeatId) clearInterval(sessionHeartbeatId);
     sessionHeartbeatId = setInterval(() => {
         if (!currentSessionRef) return;
+        const heartbeatAt = Date.now();
         update(currentSessionRef, {
             online: true,
-            lastActive: Date.now()
+            lastSeen: heartbeatAt,
+            lastActive: heartbeatAt
         }).catch((error) => {
             console.error('Gagal memperbarui heartbeat sesi:', error);
         });
@@ -230,7 +286,11 @@ function routeByRole(user) {
     const username = getUsername(user);
     const role = getRole(user);
 
-    if (opUsername) opUsername.innerText = username;
+    if (opUsername) {
+        const usernamePill = opUsername.closest('.op-profile-pill');
+        if (usernamePill) usernamePill.remove();
+        else opUsername.innerText = '';
+    }
     if (opRole) opRole.innerText = role.toUpperCase();
 
     if (role === 'op') {
@@ -332,6 +392,7 @@ function writeRelayActivityLog(relayId, state, ackSeq) {
         actorUsername: currentUserProfile.username,
         actorRole: currentUserProfile.role,
         actorUid: currentUserProfile.uid,
+        deviceId: currentUserProfile.deviceId,
         deviceName: currentUserProfile.deviceName,
         browser: currentUserProfile.browser,
         source: 'status-confirmed'
@@ -342,12 +403,16 @@ function writeRelayActivityLog(relayId, state, ackSeq) {
 
 function flattenSessions(data) {
     const sessions = [];
-    Object.values(data).forEach((userSessions) => {
-        Object.values(userSessions || {}).forEach((session) => {
-            sessions.push(session);
+    Object.entries(data).forEach(([uid, userSessions]) => {
+        Object.entries(userSessions || {}).forEach(([sessionId, session]) => {
+            sessions.push({
+                uid,
+                sessionId,
+                ...(session || {})
+            });
         });
     });
-    return sessions.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
+    return sessions.sort((a, b) => getSessionLastSeen(b) - getSessionLastSeen(a));
 }
 
 function renderSessions(data) {
@@ -355,7 +420,7 @@ function renderSessions(data) {
     const sessions = flattenSessions(data);
     const now = Date.now();
     const activeSessions = sessions.filter((session) => {
-        return session.online === true || now - Number(session.lastActive || 0) <= ACTIVE_SESSION_WINDOW_MS;
+        return session.online === true || now - getSessionLastSeen(session) <= ACTIVE_SESSION_WINDOW_MS;
     });
 
     if (opSessionCount) opSessionCount.innerText = String(activeSessions.length);
@@ -368,24 +433,26 @@ function renderSessions(data) {
         const isCurrentSession = currentUserProfile
             && session.uid === currentUserProfile.uid
             && session.sessionId === currentUserProfile.sessionId;
-        const isActive = session.online === true || now - Number(session.lastActive || 0) <= ACTIVE_SESSION_WINDOW_MS;
+        const isActive = session.online === true || now - getSessionLastSeen(session) <= ACTIVE_SESSION_WINDOW_MS;
         const statusClass = isActive ? 'op-pill-online' : 'op-pill-offline';
         const statusText = isActive ? 'Online' : 'Offline';
         const actionText = isCurrentSession ? 'Logout Saya' : 'Logout';
+        const deviceIdentifier = session.deviceId || session.uid || '-';
+        const uidText = session.uid && session.deviceId ? session.uid : '';
 
         return `
             <tr>
                 <td>
-                    <strong>${escapeHtml(session.username || '-')}</strong>
-                    <span class="op-table-muted">${escapeHtml(session.email || '')}</span>
+                    <strong>${escapeHtml(deviceIdentifier)}</strong>
+                    <span class="op-table-muted">${escapeHtml(uidText)}</span>
                 </td>
                 <td><span class="op-role-pill">${escapeHtml((session.role || '-').toUpperCase())}</span></td>
                 <td>
                     <strong>${escapeHtml(session.deviceName || '-')}</strong>
                     <span class="op-table-muted">${escapeHtml(session.browser || '')} - ${escapeHtml(session.os || '')}</span>
                 </td>
-                <td>${formatDateTime(session.loginAt)}</td>
-                <td>${formatDateTime(session.lastActive)}</td>
+                <td>${formatDateTime(getSessionCreatedAt(session))}</td>
+                <td>${formatDateTime(getSessionLastSeen(session))}</td>
                 <td><span class="op-status-pill ${statusClass}"><span></span>${statusText}</span></td>
                 <td>
                     <button class="op-action-btn" data-uid="${escapeHtml(session.uid)}" data-session="${escapeHtml(session.sessionId)}">${actionText}</button>
@@ -467,9 +534,11 @@ if (btnOpLogout) {
 
 window.addEventListener('beforeunload', () => {
     if (!currentSessionRef) return;
+    const now = Date.now();
     update(currentSessionRef, {
         online: false,
-        lastActive: Date.now()
+        lastSeen: now,
+        lastActive: now
     });
 });
 
