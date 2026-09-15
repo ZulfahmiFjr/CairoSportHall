@@ -41,7 +41,6 @@ const activityLogTableBody = document.getElementById('activity-log-table-body');
 const sessionAccountHeader = sessionTableBody?.closest('table')?.querySelector('thead th:first-child');
 
 const SESSION_HEARTBEAT_MS = 5000;
-const ACTIVE_SESSION_WINDOW_MS = 30000;
 const SESSION_KEY = 'cairo_session_id';
 const DEVICE_KEY = 'cairo_device_id';
 const relayStatusSeen = {};
@@ -425,22 +424,18 @@ function flattenSessions(data) {
 function renderSessions(data) {
     if (!sessionTableBody) return;
     const sessions = flattenSessions(data);
-    const now = Date.now();
-    const activeSessions = sessions.filter((session) => session.online === true);
+    const visibleSessions = sessions.filter((session) => session.online === true);
 
-    if (opSessionCount) opSessionCount.innerText = String(activeSessions.length);
-    if (!sessions.length) {
-        sessionTableBody.innerHTML = '<tr><td colspan="7" class="op-empty-cell">Belum ada device yang tercatat login.</td></tr>';
+    if (opSessionCount) opSessionCount.innerText = String(visibleSessions.length);
+    if (!visibleSessions.length) {
+        sessionTableBody.innerHTML = '<tr><td colspan="7" class="op-empty-cell">Belum ada device yang sedang login.</td></tr>';
         return;
     }
 
-    sessionTableBody.innerHTML = sessions.map((session) => {
+    sessionTableBody.innerHTML = visibleSessions.map((session) => {
         const isCurrentSession = currentUserProfile
             && session.uid === currentUserProfile.uid
             && session.sessionId === currentUserProfile.sessionId;
-        const isActive = session.online === true;
-        const statusClass = isActive ? 'op-pill-online' : 'op-pill-offline';
-        const statusText = isActive ? 'Online' : 'Offline';
         const actionText = isCurrentSession ? 'Logout Saya' : 'Logout';
         const deviceIdentifier = session.deviceId || session.uid || '-';
         const uidText = session.uid && session.deviceId ? session.uid : '';
@@ -458,7 +453,7 @@ function renderSessions(data) {
                 </td>
                 <td>${formatDateTime(getSessionCreatedAt(session))}</td>
                 <td>${formatDateTime(getSessionLastSeen(session))}</td>
-                <td><span class="op-status-pill ${statusClass}"><span></span>${statusText}</span></td>
+                <td><span class="op-status-pill op-pill-online"><span></span>Online</span></td>
                 <td>
                     <button class="op-action-btn" data-uid="${escapeHtml(session.uid)}" data-session="${escapeHtml(session.sessionId)}">${actionText}</button>
                 </td>
