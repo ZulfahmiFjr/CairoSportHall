@@ -30,6 +30,7 @@ const auth = getAuth(app);
 
 const dashboardContainer = document.getElementById('dashboard-container');
 const opDashboardContainer = document.getElementById('op-dashboard-container');
+const btnAdminLogout = document.getElementById('btn-logout');
 const btnOpLogout = document.getElementById('btn-op-logout');
 const opUsername = document.getElementById('op-username');
 const opRole = document.getElementById('op-role');
@@ -533,6 +534,12 @@ if (sessionTableBody) {
     });
 }
 
+if (btnAdminLogout) {
+    btnAdminLogout.addEventListener('click', () => {
+        cleanupCurrentSession().finally(() => signOut(auth));
+    });
+}
+
 if (btnOpLogout) {
     btnOpLogout.addEventListener('click', () => {
         cleanupCurrentSession().finally(() => signOut(auth));
@@ -555,7 +562,7 @@ onAuthStateChanged(auth, (user) => {
 
     if (!user) {
         if (opDashboardContainer) opDashboardContainer.style.display = 'none';
-        cleanupCurrentSession();
+        cleanupCurrentSession(true);
         currentUserProfile = null;
         return;
     }
