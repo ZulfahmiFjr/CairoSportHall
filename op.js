@@ -4,6 +4,7 @@ import {
     ref,
     set,
     update,
+    remove,
     onValue,
     onDisconnect,
     query,
@@ -197,6 +198,7 @@ function cleanupCurrentSession(markOfflineOnly = false) {
     if (!currentSessionRef) return Promise.resolve();
 
     const now = Date.now();
+    const sessionRefToCleanup = currentSessionRef;
     const payload = {
         online: false,
         lastSeen: now,
@@ -204,8 +206,14 @@ function cleanupCurrentSession(markOfflineOnly = false) {
         logoutAt: now
     };
 
-    return update(currentSessionRef, payload).catch((error) => {
+    const cleanupPromise = markOfflineOnly
+        ? update(sessionRefToCleanup, payload)
+        : remove(sessionRefToCleanup);
+
+    return cleanupPromise.catch((error) => {
         console.error('Gagal memperbarui status sesi:', error);
+        if (!markOfflineOnly) return update(sessionRefToCleanup, payload);
+        return Promise.resolve();
     }).finally(() => {
         if (!markOfflineOnly) localStorage.removeItem(SESSION_KEY);
         currentSessionRef = null;
@@ -278,12 +286,11 @@ function setupSession(user) {
         const data = snapshot.val();
         if (!data || data.forceLogout !== true || forcedLogoutActive) return;
         forcedLogoutActive = true;
-        cleanupCurrentSession(true).finally(() => signOut(auth));
+        cleanupCurrentSession().finally(() => signOut(auth));
     });
 }
 
 function routeByRole(user) {
-    const username = getUsername(user);
     const role = getRole(user);
 
     if (opUsername) {
@@ -419,9 +426,7 @@ function renderSessions(data) {
     if (!sessionTableBody) return;
     const sessions = flattenSessions(data);
     const now = Date.now();
-    const activeSessions = sessions.filter((session) => {
-        return session.online === true || now - getSessionLastSeen(session) <= ACTIVE_SESSION_WINDOW_MS;
-    });
+    const activeSessions = sessions.filter((session) => session.online === true);
 
     if (opSessionCount) opSessionCount.innerText = String(activeSessions.length);
     if (!sessions.length) {
@@ -433,7 +438,7 @@ function renderSessions(data) {
         const isCurrentSession = currentUserProfile
             && session.uid === currentUserProfile.uid
             && session.sessionId === currentUserProfile.sessionId;
-        const isActive = session.online === true || now - getSessionLastSeen(session) <= ACTIVE_SESSION_WINDOW_MS;
+        const isActive = session.online === true;
         const statusClass = isActive ? 'op-pill-online' : 'op-pill-offline';
         const statusText = isActive ? 'Online' : 'Offline';
         const actionText = isCurrentSession ? 'Logout Saya' : 'Logout';
@@ -511,12 +516,16 @@ if (sessionTableBody) {
 
         const uid = button.dataset.uid;
         const sessionId = button.dataset.session;
+        const now = Date.now();
         button.disabled = true;
         button.innerText = 'Memproses...';
 
         update(ref(db, `sessions/${uid}/${sessionId}`), {
+            online: false,
+            lastSeen: now,
+            lastActive: now,
             forceLogout: true,
-            logoutRequestedAt: Date.now(),
+            logoutRequestedAt: now,
             logoutRequestedBy: currentUserProfile.username
         }).catch((error) => {
             console.error('Gagal mengirim logout device:', error);
