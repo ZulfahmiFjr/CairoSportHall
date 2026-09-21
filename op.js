@@ -351,8 +351,6 @@ function setupSession(user) {
             sessionId: currentSessionId,
             email: user.email || '',
             userAgent: deviceInfo.userAgent,
-            forceLogout: false,
-            revoked: false,
             lastSeen: serverTimestamp(),
             lastActive: serverTimestamp()
         };
@@ -360,6 +358,8 @@ function setupSession(user) {
         if (!existing.createdAt && !existing.loginAt) {
             sessionPayload.createdAt = serverTimestamp();
             sessionPayload.loginAt = serverTimestamp();
+            sessionPayload.forceLogout = false;
+            sessionPayload.revoked = false;
         }
 
         return update(currentSessionRef, sessionPayload).then(() => {
