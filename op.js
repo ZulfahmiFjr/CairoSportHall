@@ -584,7 +584,7 @@ function renderActivityLogs(data) {
                     <span class="op-table-muted">Relay ${escapeHtml(log.relayId || '-')}</span>
                 </td>
                 <td><span class="op-state-pill ${isOn ? 'op-state-on' : 'op-state-off'}">${isOn ? 'ON' : 'OFF'}</span></td>
-                <td>${escapeHtml(log.actorUsername || '-')}</td>
+                <td>${escapeHtml(log.deviceId || log.actorUid || '-')}</td>
                 <td>${escapeHtml((log.actorRole || '-').toUpperCase())}</td>
                 <td>${escapeHtml(log.deviceName || '-')}</td>
             </tr>
