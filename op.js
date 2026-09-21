@@ -5,13 +5,21 @@ import {
     set,
     update,
     remove,
+    get,
     onValue,
     onDisconnect,
+    serverTimestamp,
     query,
     orderByChild,
     limitToLast
 } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
-import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
+import {
+    getAuth,
+    onAuthStateChanged,
+    signOut,
+    setPersistence,
+    browserSessionPersistence
+} from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40",
@@ -28,6 +36,10 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const auth = getAuth(app);
 
+setPersistence(auth, browserSessionPersistence).catch((error) => {
+    console.error('Gagal mengatur sesi login per tab:', error);
+});
+
 const dashboardContainer = document.getElementById('dashboard-container');
 const opDashboardContainer = document.getElementById('op-dashboard-container');
 const btnAdminLogout = document.getElementById('btn-logout');
@@ -42,7 +54,9 @@ const activityLogTableBody = document.getElementById('activity-log-table-body');
 const sessionAccountHeader = sessionTableBody?.closest('table')?.querySelector('thead th:first-child');
 
 const SESSION_HEARTBEAT_MS = 5000;
-const SESSION_KEY = 'cairo_session_id';
+const SESSION_STALE_MS = 20000;
+const SESSION_KEY = 'cairo_tab_session_id';
+const OLD_SESSION_KEY = 'cairo_session_id';
 const DEVICE_KEY = 'cairo_device_id';
 const relayStatusSeen = {};
 const namaSaklarMapOp = {};
@@ -52,8 +66,14 @@ let currentSessionId = '';
 let currentUserProfile = null;
 let sessionHeartbeatId = null;
 let sessionForceLogoutUnsub = null;
+let sessionConnectionUnsub = null;
+let sessionPresenceRegistered = false;
 let roleUnsubscribes = [];
+let sessionsRenderIntervalId = null;
+let latestSessionsData = {};
 let forcedLogoutActive = false;
+let firebaseConnected = false;
+let logoutInProgress = false;
 
 if (sessionAccountHeader) sessionAccountHeader.innerText = 'Device ID';
 
@@ -62,12 +82,17 @@ for (let i = 1; i <= 8; i++) {
 }
 
 function getSessionId() {
-    let sessionId = localStorage.getItem(SESSION_KEY);
+    let sessionId = sessionStorage.getItem(SESSION_KEY);
     if (!sessionId) {
-        sessionId = `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-        localStorage.setItem(SESSION_KEY, sessionId);
+        sessionId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        sessionStorage.setItem(SESSION_KEY, sessionId);
     }
     return sessionId;
+}
+
+function clearTabSessionId() {
+    sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(OLD_SESSION_KEY);
 }
 
 function getDeviceId() {
@@ -177,6 +202,16 @@ function getSessionLastSeen(session) {
     return Number(session.lastSeen || session.lastActive || 0);
 }
 
+function isTabActive() {
+    return document.visibilityState === 'visible' && document.hasFocus() && navigator.onLine;
+}
+
+function isSessionOnline(session, now = Date.now()) {
+    if (session.revoked === true || session.forceLogout === true) return false;
+    const lastSeen = getSessionLastSeen(session);
+    return session.online === true && lastSeen > 0 && now - lastSeen <= SESSION_STALE_MS;
+}
+
 function clearRoleListeners() {
     roleUnsubscribes.forEach((unsub) => {
         try {
@@ -186,24 +221,35 @@ function clearRoleListeners() {
         }
     });
     roleUnsubscribes = [];
+    if (sessionsRenderIntervalId) clearInterval(sessionsRenderIntervalId);
+    sessionsRenderIntervalId = null;
 }
 
-function cleanupCurrentSession(markOfflineOnly = false) {
+function clearSessionRuntime() {
     if (sessionHeartbeatId) clearInterval(sessionHeartbeatId);
     sessionHeartbeatId = null;
     if (sessionForceLogoutUnsub) {
         sessionForceLogoutUnsub();
         sessionForceLogoutUnsub = null;
     }
+    if (sessionConnectionUnsub) {
+        sessionConnectionUnsub();
+        sessionConnectionUnsub = null;
+    }
+    sessionPresenceRegistered = false;
+}
+
+function cleanupCurrentSession(markOfflineOnly = false) {
+    clearSessionRuntime();
     if (!currentSessionRef) return Promise.resolve();
 
-    const now = Date.now();
     const sessionRefToCleanup = currentSessionRef;
     const payload = {
         online: false,
-        lastSeen: now,
-        lastActive: now,
-        logoutAt: now
+        active: false,
+        lastSeen: serverTimestamp(),
+        lastActive: serverTimestamp(),
+        logoutAt: serverTimestamp()
     };
 
     const cleanupPromise = markOfflineOnly
@@ -215,12 +261,59 @@ function cleanupCurrentSession(markOfflineOnly = false) {
         if (!markOfflineOnly) return update(sessionRefToCleanup, payload);
         return Promise.resolve();
     }).finally(() => {
-        if (!markOfflineOnly) localStorage.removeItem(SESSION_KEY);
+        if (!markOfflineOnly) clearTabSessionId();
         currentSessionRef = null;
     });
 }
 
+function updateSessionPresence(forceOffline = false) {
+    if (!currentSessionRef || forcedLogoutActive || logoutInProgress) return Promise.resolve();
+    const online = !forceOffline && firebaseConnected && isTabActive();
+    return update(currentSessionRef, {
+        online,
+        active: online,
+        lastSeen: serverTimestamp(),
+        lastActive: serverTimestamp()
+    }).catch((error) => {
+        console.error('Gagal memperbarui presence sesi:', error);
+    });
+}
+
+function registerSessionDisconnect() {
+    if (!currentSessionRef || !firebaseConnected) return;
+    onDisconnect(currentSessionRef).update({
+        online: false,
+        active: false,
+        lastSeen: serverTimestamp(),
+        lastActive: serverTimestamp()
+    }).then(() => {
+        sessionPresenceRegistered = true;
+        return updateSessionPresence();
+    }).catch((error) => {
+        console.error('Gagal mendaftarkan onDisconnect sesi:', error);
+    });
+}
+
+function watchSessionConnection() {
+    if (sessionConnectionUnsub) sessionConnectionUnsub();
+    sessionConnectionUnsub = onValue(ref(db, '.info/connected'), (snapshot) => {
+        firebaseConnected = snapshot.val() === true;
+        if (firebaseConnected) {
+            sessionPresenceRegistered = false;
+            registerSessionDisconnect();
+        } else {
+            updateSessionPresence(true);
+        }
+    });
+}
+
+function startSessionHeartbeat() {
+    if (sessionHeartbeatId) clearInterval(sessionHeartbeatId);
+    sessionHeartbeatId = setInterval(() => updateSessionPresence(), SESSION_HEARTBEAT_MS);
+}
+
 function setupSession(user) {
+    clearSessionRuntime();
     currentSessionId = getSessionId();
     const username = getUsername(user);
     const role = getRole(user);
@@ -238,53 +331,51 @@ function setupSession(user) {
     };
 
     currentSessionRef = ref(db, `sessions/${user.uid}/${currentSessionId}`);
-    const now = Date.now();
-    const sessionPayload = {
-        uid: user.uid,
-        username,
-        role,
-        deviceId,
-        deviceName: deviceInfo.deviceName,
-        browser: deviceInfo.browser,
-        os: deviceInfo.os,
-        createdAt: now,
-        lastSeen: now,
-        online: true,
-        sessionId: currentSessionId,
-        email: user.email || '',
-        loginAt: now,
-        lastActive: now,
-        forceLogout: false,
-        logoutRequestedBy: '',
-        userAgent: deviceInfo.userAgent
-    };
 
-    set(currentSessionRef, sessionPayload).catch((error) => {
-        console.error('Gagal mencatat sesi login:', error);
-    });
-    onDisconnect(currentSessionRef).update({
-        online: false,
-        lastSeen: Date.now(),
-        lastActive: Date.now()
-    });
+    get(currentSessionRef).then((snapshot) => {
+        const existing = snapshot.val() || {};
+        if (existing.forceLogout === true || existing.revoked === true) {
+            forcedLogoutActive = true;
+            clearTabSessionId();
+            return signOut(auth);
+        }
 
-    if (sessionHeartbeatId) clearInterval(sessionHeartbeatId);
-    sessionHeartbeatId = setInterval(() => {
-        if (!currentSessionRef) return;
-        const heartbeatAt = Date.now();
-        update(currentSessionRef, {
-            online: true,
-            lastSeen: heartbeatAt,
-            lastActive: heartbeatAt
-        }).catch((error) => {
-            console.error('Gagal memperbarui heartbeat sesi:', error);
+        const sessionPayload = {
+            uid: user.uid,
+            username,
+            role,
+            deviceId,
+            deviceName: deviceInfo.deviceName,
+            browser: deviceInfo.browser,
+            os: deviceInfo.os,
+            sessionId: currentSessionId,
+            email: user.email || '',
+            userAgent: deviceInfo.userAgent,
+            forceLogout: false,
+            revoked: false,
+            lastSeen: serverTimestamp(),
+            lastActive: serverTimestamp()
+        };
+
+        if (!existing.createdAt && !existing.loginAt) {
+            sessionPayload.createdAt = serverTimestamp();
+            sessionPayload.loginAt = serverTimestamp();
+        }
+
+        return update(currentSessionRef, sessionPayload).then(() => {
+            watchSessionConnection();
+            startSessionHeartbeat();
+            updateSessionPresence();
         });
-    }, SESSION_HEARTBEAT_MS);
+    }).catch((error) => {
+        console.error('Gagal menyiapkan sesi login:', error);
+    });
 
     if (sessionForceLogoutUnsub) sessionForceLogoutUnsub();
     sessionForceLogoutUnsub = onValue(currentSessionRef, (snapshot) => {
         const data = snapshot.val();
-        if (!data || data.forceLogout !== true || forcedLogoutActive) return;
+        if (!data || forcedLogoutActive) return;
+        if (data.forceLogout !== true && data.revoked !== true) return;
         forcedLogoutActive = true;
         cleanupCurrentSession().finally(() => signOut(auth));
     });
@@ -335,12 +426,15 @@ function startOperatorPanel() {
     roleUnsubscribes.push(unsubNama);
 
     const unsubSessions = onValue(ref(db, 'sessions'), (snapshot) => {
-        renderSessions(snapshot.val() || {});
+        latestSessionsData = snapshot.val() || {};
+        renderSessions(latestSessionsData);
     }, (error) => {
         console.error('Gagal memuat sesi login:', error);
         renderSessionError();
     });
     roleUnsubscribes.push(unsubSessions);
+
+    sessionsRenderIntervalId = setInterval(() => renderSessions(latestSessionsData), SESSION_HEARTBEAT_MS);
 
     const activityQuery = query(ref(db, 'activity_logs'), orderByChild('createdAt'), limitToLast(80));
     const unsubLogs = onValue(activityQuery, (snapshot) => {
@@ -412,10 +506,11 @@ function flattenSessions(data) {
     const sessions = [];
     Object.entries(data).forEach(([uid, userSessions]) => {
         Object.entries(userSessions || {}).forEach(([sessionId, session]) => {
+            if (!session || session.revoked === true || session.forceLogout === true) return;
             sessions.push({
                 uid,
                 sessionId,
-                ...(session || {})
+                ...session
             });
         });
     });
@@ -425,7 +520,8 @@ function flattenSessions(data) {
 function renderSessions(data) {
     if (!sessionTableBody) return;
     const sessions = flattenSessions(data);
-    const onlineCount = sessions.filter((session) => session.online === true).length;
+    const now = Date.now();
+    const onlineCount = sessions.filter((session) => isSessionOnline(session, now)).length;
 
     if (opSessionCount) opSessionCount.innerText = String(onlineCount);
     if (!sessions.length) {
@@ -437,7 +533,7 @@ function renderSessions(data) {
         const isCurrentSession = currentUserProfile
             && session.uid === currentUserProfile.uid
             && session.sessionId === currentUserProfile.sessionId;
-        const isOnline = session.online === true;
+        const isOnline = isSessionOnline(session, now);
         const statusClass = isOnline ? 'op-pill-online' : 'op-pill-offline';
         const statusText = isOnline ? 'Online' : 'Offline';
         const actionText = isCurrentSession ? 'Logout Saya' : 'Logout';
@@ -515,16 +611,17 @@ if (sessionTableBody) {
 
         const uid = button.dataset.uid;
         const sessionId = button.dataset.session;
-        const now = Date.now();
         button.disabled = true;
         button.innerText = 'Memproses...';
 
         update(ref(db, `sessions/${uid}/${sessionId}`), {
             online: false,
-            lastSeen: now,
-            lastActive: now,
+            active: false,
+            lastSeen: serverTimestamp(),
+            lastActive: serverTimestamp(),
             forceLogout: true,
-            logoutRequestedAt: now,
+            revoked: true,
+            logoutRequestedAt: serverTimestamp(),
             logoutRequestedBy: currentUserProfile.username
         }).catch((error) => {
             console.error('Gagal mengirim logout device:', error);
@@ -534,31 +631,43 @@ if (sessionTableBody) {
     });
 }
 
+function logoutCurrentTab(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+    if (logoutInProgress) return;
+    logoutInProgress = true;
+    cleanupCurrentSession().finally(() => signOut(auth));
+}
+
 if (btnAdminLogout) {
-    btnAdminLogout.addEventListener('click', () => {
-        cleanupCurrentSession().finally(() => signOut(auth));
-    });
+    btnAdminLogout.addEventListener('click', logoutCurrentTab, true);
 }
 
 if (btnOpLogout) {
-    btnOpLogout.addEventListener('click', () => {
-        cleanupCurrentSession().finally(() => signOut(auth));
-    });
+    btnOpLogout.addEventListener('click', logoutCurrentTab, true);
 }
+
+['visibilitychange', 'focus', 'blur', 'online', 'offline'].forEach((eventName) => {
+    window.addEventListener(eventName, () => updateSessionPresence());
+    document.addEventListener(eventName, () => updateSessionPresence());
+});
 
 window.addEventListener('beforeunload', () => {
     if (!currentSessionRef) return;
-    const now = Date.now();
     update(currentSessionRef, {
         online: false,
-        lastSeen: now,
-        lastActive: now
+        active: false,
+        lastSeen: serverTimestamp(),
+        lastActive: serverTimestamp()
     });
 });
 
 onAuthStateChanged(auth, (user) => {
     clearRoleListeners();
     forcedLogoutActive = false;
+    logoutInProgress = false;
 
     if (!user) {
         if (opDashboardContainer) opDashboardContainer.style.display = 'none';
