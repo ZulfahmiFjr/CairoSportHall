@@ -9,3 +9,23 @@ in the development cycle.
 
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+
+Web authentication and presence regression tests (Node.js, no dependencies):
+
+    node test/web-sessions.test.cjs
+    TEST_WEB_LOCKS=1 node test/web-sessions.test.cjs
+
+These execute the real op.js controller with separate simulated tabs and a
+mock Firebase transport. They cover duplication, focus, reconnect, refresh,
+revocation races, offline logout, server clock offset and validation failures.
+They do not replace a browser/Firebase integration test.
+
+Presence behavior:
+- A stable sessionStorage ID owns a tab row; each connection has a separate ID.
+- Web Locks (or BroadcastChannel ownership probes) separate duplicated tabs.
+- Only the current connection determines Online; heartbeat expires after 20 s.
+- Revoked sessions remain as hidden markers, so delayed writes cannot restore
+  visible rows. Do not delete these markers while old clients may reconnect.
+- Offline logout completes locally. Pending server revocations are retried by
+  another authenticated same-origin tab or at the next authenticated connection.
+- On deployment, already open pages must reload to use the new controller.

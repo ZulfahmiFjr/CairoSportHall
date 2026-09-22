@@ -1,23 +1,6 @@
-// ngambil fungsi fungsi penting dari firebase
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
-import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
-
-// config dari firebasenyaa
-const firebaseConfig = {
-    apiKey: "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40",
-    authDomain: "cairosporthall.firebaseapp.com",
-    databaseURL: "https://cairosporthall-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "cairosporthall",
-    storageBucket: "cairosporthall.firebasestorage.app",
-    messagingSenderId: "180648731836",
-    appId: "1:180648731836:web:c223df91836d6cdd821cb9",
-    measurementId: "G-0PP7BPGX9G"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-const auth = getAuth(app);
+import { ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
+import { signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
+import { app, db, auth, tabLogoutPending, onTabAuthStateChanged as onAuthStateChanged } from './tab-auth.js';
 
 const loginContainer = document.getElementById('login-container');
 const dashboardContainer = document.getElementById('dashboard-container');
@@ -531,6 +514,7 @@ function getPesanErrorAuth(kodeError) {
 }
 
 function handleLogin() {
+    if (tabLogoutPending || btnLogin.disabled) return;
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
     if (!username || !password) {
@@ -569,7 +553,7 @@ usernameInput.addEventListener('keydown', (e) => {
 });
 usernameInput.addEventListener('input', () => loginError.style.display = 'none');
 passwordInput.addEventListener('input', () => loginError.style.display = 'none');
-btnLogout.addEventListener('click', () => signOut(auth));
+// Tab session logout is handled once, by op.js.
 
 let initialScheduleData = {
     aktif: false,

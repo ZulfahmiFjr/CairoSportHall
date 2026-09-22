@@ -1,44 +1,9 @@
-import { initializeApp, getApp, getApps } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-app.js";
 import {
-    getDatabase,
-    ref,
-    set,
-    update,
-    remove,
-    get,
-    onValue,
-    onDisconnect,
-    serverTimestamp,
-    query,
-    orderByChild,
-    limitToLast
+    ref, child, set, get, update, onValue, onDisconnect, runTransaction, serverTimestamp,
+    query, orderByChild, limitToLast
 } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-database.js";
-import {
-    getAuth,
-    onAuthStateChanged,
-    signOut,
-    setPersistence,
-    browserSessionPersistence
-} from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
-
-const firebaseConfig = {
-    apiKey: "AIzaSyCIPJKs36oEABoh_tRbMEpOELhGyx-Bq40",
-    authDomain: "cairosporthall.firebaseapp.com",
-    databaseURL: "https://cairosporthall-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "cairosporthall",
-    storageBucket: "cairosporthall.firebasestorage.app",
-    messagingSenderId: "180648731836",
-    appId: "1:180648731836:web:c223df91836d6cdd821cb9",
-    measurementId: "G-0PP7BPGX9G"
-};
-
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const db = getDatabase(app);
-const auth = getAuth(app);
-
-setPersistence(auth, browserSessionPersistence).catch((error) => {
-    console.error('Gagal mengatur sesi login per tab:', error);
-});
+import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.4.0/firebase-auth.js";
+import { db, auth, publishTabUser, setTabLogoutPending } from './tab-auth.js';
 
 const dashboardContainer = document.getElementById('dashboard-container');
 const opDashboardContainer = document.getElementById('op-dashboard-container');
@@ -54,10 +19,10 @@ const activityLogTableBody = document.getElementById('activity-log-table-body');
 const sessionAccountHeader = sessionTableBody?.closest('table')?.querySelector('thead th:first-child');
 
 const SESSION_HEARTBEAT_MS = 5000;
-const SESSION_STALE_MS = 20000;
 const SESSION_KEY = 'cairo_tab_session_id';
-const OLD_SESSION_KEY = 'cairo_session_id';
+const SESSION_TIMEOUT_MS = 20000;
 const DEVICE_KEY = 'cairo_device_id';
+const PENDING_LOGOUT_KEY = 'cairo_pending_logouts_v2';
 const relayStatusSeen = {};
 const namaSaklarMapOp = {};
 
@@ -66,33 +31,105 @@ let currentSessionId = '';
 let currentUserProfile = null;
 let sessionHeartbeatId = null;
 let sessionForceLogoutUnsub = null;
-let sessionConnectionUnsub = null;
-let sessionPresenceRegistered = false;
 let roleUnsubscribes = [];
-let sessionsRenderIntervalId = null;
-let latestSessionsData = {};
 let forcedLogoutActive = false;
 let firebaseConnected = false;
-let logoutInProgress = false;
+let serverOffset = 0;
+let authGeneration = 0;
+let sessionReady = false;
+let pendingUser = null;
+let disconnectAction = null;
+let presenceQueue = Promise.resolve();
+let cachedSessions = {};
+let sessionRenderTimer = null;
+let sessionStarting = false;
+let connectionEpoch = 0;
+let currentConnectionId = '';
+let sessionsLoaded = false;
+const pageId = crypto.randomUUID();
+let tabChannel = null;
+let releaseTabLock = null;
+let claimingId = '';
+let claimingLost = false;
+try { tabChannel = new BroadcastChannel('cairo-tabs-v2'); } catch (_) {}
+
+function newSessionId() { return `web-${crypto.randomUUID()}`; }
+function serverNow() { return Date.now() + serverOffset; }
+function tabIsActive() {
+    return document.visibilityState === 'visible' && document.hasFocus() && navigator.onLine;
+}
+function sessionIsOnline(session) {
+    const age = serverNow() - getSessionLastSeen(session);
+    const presence = session.connectionId ? session.connections?.[session.connectionId] : session;
+    return firebaseConnected && !session.revoked && !session.forceLogout && presence?.online === true && age >= -5000 && age < SESSION_TIMEOUT_MS;
+}
+
+// sessionStorage survives reloads, but duplicated tabs can inherit its contents.
+// Probe an existing owner before reusing an ID; every live tab owns its own row.
+async function claimSessionId(generation) {
+    let id = sessionStorage.getItem(SESSION_KEY);
+    const inheritedId = id;
+    const assertCurrent = () => {
+        if (generation !== authGeneration) throw new Error('Session initialization superseded');
+    };
+    if (navigator.locks) {
+        if (releaseTabLock) releaseTabLock();
+        const acquire = candidate => new Promise((resolve, reject) => {
+            navigator.locks.request(`cairo-session:${candidate}`, { ifAvailable: true }, lock => {
+                if (!lock) { resolve(false); return; }
+                return new Promise(release => {
+                    releaseTabLock = release;
+                    resolve(true);
+                });
+            }).catch(reject);
+        });
+        if (id && !(await acquire(id))) id = null;
+        const fresh = !id;
+        if (!id) { id = newSessionId(); await acquire(id); }
+        if (generation !== authGeneration) {
+            releaseTabLock?.();
+            releaseTabLock = null;
+            assertCurrent();
+        }
+        sessionStorage.setItem(SESSION_KEY, id);
+        currentSessionId = id;
+        return { id, fresh, inheritedId: inheritedId !== id ? inheritedId : null };
+    }
+    if (id && tabChannel) {
+        claimingId = id;
+        claimingLost = false;
+        let taken = false;
+        const listener = ({ data }) => {
+            if (data.type === 'owner' && data.sessionId === id && data.to === pageId) taken = true;
+        };
+        tabChannel.addEventListener('message', listener);
+        tabChannel.postMessage({ type: 'probe', sessionId: id, pageId });
+        await new Promise(resolve => setTimeout(resolve, 200));
+        tabChannel.removeEventListener('message', listener);
+        claimingId = '';
+        if (taken || claimingLost) id = null;
+    } else if (id && !tabChannel) {
+        // Fail closed on browsers unable to distinguish a duplicated tab.
+        throw new Error('Browser tidak mendukung isolasi tab. Silakan login ulang.');
+    }
+    assertCurrent();
+    const fresh = !id;
+    if (!id) id = newSessionId();
+    sessionStorage.setItem(SESSION_KEY, id);
+    currentSessionId = id;
+    return { id, fresh, inheritedId: inheritedId !== id ? inheritedId : null };
+}
+if (tabChannel) tabChannel.addEventListener('message', ({ data }) => {
+    if (data.type === 'probe' && data.sessionId === claimingId && data.pageId < pageId) claimingLost = true;
+    if (data.type === 'probe' && (data.sessionId === currentSessionId || (data.sessionId === claimingId && pageId < data.pageId)) && data.pageId !== pageId) {
+        tabChannel.postMessage({ type: 'owner', sessionId: data.sessionId, to: data.pageId });
+    }
+});
 
 if (sessionAccountHeader) sessionAccountHeader.innerText = 'Device ID';
 
 for (let i = 1; i <= 8; i++) {
     namaSaklarMapOp[i] = `Saklar ${i}`;
-}
-
-function getSessionId() {
-    let sessionId = sessionStorage.getItem(SESSION_KEY);
-    if (!sessionId) {
-        sessionId = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-        sessionStorage.setItem(SESSION_KEY, sessionId);
-    }
-    return sessionId;
-}
-
-function clearTabSessionId() {
-    sessionStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(OLD_SESSION_KEY);
 }
 
 function getDeviceId() {
@@ -199,17 +236,8 @@ function getSessionCreatedAt(session) {
 }
 
 function getSessionLastSeen(session) {
-    return Number(session.lastSeen || session.lastActive || 0);
-}
-
-function isTabActive() {
-    return document.visibilityState === 'visible' && document.hasFocus() && navigator.onLine;
-}
-
-function isSessionOnline(session, now = Date.now()) {
-    if (session.revoked === true || session.forceLogout === true) return false;
-    const lastSeen = getSessionLastSeen(session);
-    return session.online === true && lastSeen > 0 && now - lastSeen <= SESSION_STALE_MS;
+    const presence = session.connectionId ? session.connections?.[session.connectionId] : session;
+    return Number(presence?.lastSeen || presence?.lastActive || 0);
 }
 
 function clearRoleListeners() {
@@ -221,165 +249,262 @@ function clearRoleListeners() {
         }
     });
     roleUnsubscribes = [];
-    if (sessionsRenderIntervalId) clearInterval(sessionsRenderIntervalId);
-    sessionsRenderIntervalId = null;
+    if (sessionRenderTimer) clearInterval(sessionRenderTimer);
+    sessionRenderTimer = null;
 }
 
-function clearSessionRuntime() {
+// Keep the top-bar logout buttons usable even while revalidating/offline.
+function setSessionControlsEnabled(enabled) {
+    const controls = ['saklar-container', 'schedule-modal', 'edit-name-modal', 'delete-logs-modal']
+        .map(id => document.getElementById(id));
+    controls.push(opDashboardContainer?.querySelector?.('.op-shell'));
+    for (const control of controls) if (control) control.inert = !enabled;
+}
+
+function stopSessionTracking() {
+    setSessionControlsEnabled(false);
+    sessionReady = false;
     if (sessionHeartbeatId) clearInterval(sessionHeartbeatId);
     sessionHeartbeatId = null;
-    if (sessionForceLogoutUnsub) {
-        sessionForceLogoutUnsub();
-        sessionForceLogoutUnsub = null;
+    if (sessionForceLogoutUnsub) sessionForceLogoutUnsub();
+    sessionForceLogoutUnsub = null;
+}
+
+function pendingLogouts() {
+    try { return JSON.parse(localStorage.getItem(PENDING_LOGOUT_KEY) || '{}'); }
+    catch (_) { return {}; }
+}
+
+function rememberLogout(path) {
+    const pending = pendingLogouts();
+    pending[path] = true;
+    localStorage.setItem(PENDING_LOGOUT_KEY, JSON.stringify(pending));
+}
+
+function forgetLogout(path) {
+    const pending = pendingLogouts();
+    delete pending[path];
+    localStorage.setItem(PENDING_LOGOUT_KEY, JSON.stringify(pending));
+}
+
+function revocationPayload() {
+    return { revoked: true, forceLogout: true, online: false,
+        logoutAt: serverTimestamp(), lastSeen: serverTimestamp() };
+}
+
+async function flushPendingLogouts(user) {
+    const privileged = ['admin@cairo.com', 'op@cairo.com'].includes(user.email);
+    for (const path of Object.keys(pendingLogouts())) {
+        if (!/^sessions\/[^/]+\/(?:web|tab)-[a-zA-Z0-9-]+$/.test(path)) continue;
+        if (!privileged && !path.startsWith(`sessions/${user.uid}/`)) continue;
+        await update(ref(db, path), revocationPayload());
+        forgetLogout(path);
     }
-    if (sessionConnectionUnsub) {
-        sessionConnectionUnsub();
-        sessionConnectionUnsub = null;
+}
+
+window.addEventListener('storage', event => {
+    if (event.key === PENDING_LOGOUT_KEY && pendingUser && firebaseConnected) {
+        flushPendingLogouts(pendingUser).catch(console.error);
     }
-    sessionPresenceRegistered = false;
+});
+
+// A dropped connection must not leave the local logout button waiting forever.
+async function bounded(promise, timeoutMs = 3000) {
+    let timer;
+    try {
+        return await Promise.race([promise, new Promise(resolve => { timer = setTimeout(resolve, timeoutMs); })]);
+    } finally { clearTimeout(timer); }
 }
 
-function cleanupCurrentSession(markOfflineOnly = false) {
-    clearSessionRuntime();
-    if (!currentSessionRef) return Promise.resolve();
-
-    const sessionRefToCleanup = currentSessionRef;
-    const payload = {
-        online: false,
-        active: false,
-        lastSeen: serverTimestamp(),
-        lastActive: serverTimestamp(),
-        logoutAt: serverTimestamp()
-    };
-
-    const cleanupPromise = markOfflineOnly
-        ? update(sessionRefToCleanup, payload)
-        : remove(sessionRefToCleanup);
-
-    return cleanupPromise.catch((error) => {
-        console.error('Gagal memperbarui status sesi:', error);
-        if (!markOfflineOnly) return update(sessionRefToCleanup, payload);
-        return Promise.resolve();
-    }).finally(() => {
-        if (!markOfflineOnly) clearTabSessionId();
-        currentSessionRef = null;
-    });
-}
-
-function updateSessionPresence(forceOffline = false) {
-    if (!currentSessionRef || forcedLogoutActive || logoutInProgress) return Promise.resolve();
-    const online = !forceOffline && firebaseConnected && isTabActive();
-    return update(currentSessionRef, {
-        online,
-        active: online,
-        lastSeen: serverTimestamp(),
-        lastActive: serverTimestamp()
-    }).catch((error) => {
-        console.error('Gagal memperbarui presence sesi:', error);
-    });
-}
-
-function registerSessionDisconnect() {
-    if (!currentSessionRef || !firebaseConnected) return;
-    onDisconnect(currentSessionRef).update({
-        online: false,
-        active: false,
-        lastSeen: serverTimestamp(),
-        lastActive: serverTimestamp()
-    }).then(() => {
-        sessionPresenceRegistered = true;
-        return updateSessionPresence();
-    }).catch((error) => {
-        console.error('Gagal mendaftarkan onDisconnect sesi:', error);
-    });
-}
-
-function watchSessionConnection() {
-    if (sessionConnectionUnsub) sessionConnectionUnsub();
-    sessionConnectionUnsub = onValue(ref(db, '.info/connected'), (snapshot) => {
-        firebaseConnected = snapshot.val() === true;
-        if (firebaseConnected) {
-            sessionPresenceRegistered = false;
-            registerSessionDisconnect();
-        } else {
-            updateSessionPresence(true);
+async function endTabSession(revoke = true) {
+    if (forcedLogoutActive) return;
+    forcedLogoutActive = true;
+    setTabLogoutPending(true);
+    ++authGeneration;
+    pendingUser = null;
+    stopSessionTracking();
+    const sessionRef = currentSessionRef;
+    const logoutPath = currentUserProfile && currentSessionId
+        ? `sessions/${currentUserProfile.uid}/${currentSessionId}` : null;
+    if (revoke && logoutPath) {
+        try { rememberLogout(logoutPath); } catch (error) { console.error('Gagal menyimpan antrean logout:', error); }
+    }
+    currentSessionRef = null;
+    publishTabUser(null);
+    for (const id of ['schedule-modal', 'edit-name-modal', 'delete-logs-modal']) {
+        const modal = document.getElementById(id);
+        if (modal) modal.style.display = 'none';
+    }
+    clearRoleListeners();
+    if (opDashboardContainer) opDashboardContainer.style.display = 'none';
+    try { sessionStorage.removeItem(SESSION_KEY); } catch (error) { console.error(error); }
+    currentSessionId = '';
+    if (releaseTabLock) releaseTabLock();
+    releaseTabLock = null;
+    currentUserProfile = null;
+    try {
+        if (sessionRef && revoke && firebaseConnected) {
+            // Keep a hidden revocation marker: suspended tabs must not recreate a deleted row.
+            await bounded(update(sessionRef, revocationPayload()).then(() => forgetLogout(logoutPath)));
         }
-    });
+    } catch (error) {
+        console.error('Gagal mencabut sesi:', error);
+    } finally {
+        if (disconnectAction && firebaseConnected) {
+            // Keep the disconnect handler if the server has not accepted the logout yet.
+            if (!logoutPath || !pendingLogouts()[logoutPath]) {
+                await bounded(disconnectAction.cancel().catch(console.error));
+            }
+        }
+        disconnectAction = null;
+        try { await signOut(auth); }
+        finally { setTabLogoutPending(false); }
+    }
 }
 
-function startSessionHeartbeat() {
-    if (sessionHeartbeatId) clearInterval(sessionHeartbeatId);
-    sessionHeartbeatId = setInterval(() => updateSessionPresence(), SESSION_HEARTBEAT_MS);
+function writePresence() {
+    if (!navigator.onLine) setSessionControlsEnabled(false);
+    else if (sessionReady) setSessionControlsEnabled(true);
+    if (!firebaseConnected || !sessionReady || !currentSessionRef || forcedLogoutActive) return;
+    const sessionRef = currentSessionRef;
+    const generation = authGeneration;
+    const epoch = connectionEpoch;
+    const active = tabIsActive();
+    const connectionId = currentConnectionId;
+    presenceQueue = presenceQueue.catch(() => {}).then(async () => {
+        if (!firebaseConnected || generation !== authGeneration || epoch !== connectionEpoch || !sessionReady) return;
+        const result = await runTransaction(sessionRef, data => {
+            if (generation !== authGeneration || epoch !== connectionEpoch || !sessionReady || !data || data.revoked || data.forceLogout) return;
+            return { ...data, online: active, lastSeen: serverTimestamp(), connectionId,
+                connections: { [connectionId]: { online: active, lastSeen: serverTimestamp() } },
+                lastActive: active ? serverTimestamp() : data.lastActive };
+        }, { applyLocally: false });
+        if (generation !== authGeneration || epoch !== connectionEpoch) return;
+        if (!result.committed && (!result.snapshot.exists() || result.snapshot.val()?.revoked || result.snapshot.val()?.forceLogout)) {
+            await endTabSession(false);
+        }
+    }).catch(error => console.error('Gagal memperbarui status tab:', error));
 }
 
-function setupSession(user) {
-    clearSessionRuntime();
-    currentSessionId = getSessionId();
+async function connectSession(user, generation) {
+    const sessionRef = currentSessionRef;
+    if (!sessionRef || !firebaseConnected || generation !== authGeneration) return;
+    sessionReady = false;
+    const epoch = connectionEpoch;
+    const profile = currentUserProfile;
+    const connectionId = crypto.randomUUID();
+    await flushPendingLogouts(user);
+    if (generation !== authGeneration || epoch !== connectionEpoch || !firebaseConnected) return;
+    if (profile.inheritedId) {
+        const inherited = (await get(ref(db, `sessions/${user.uid}/${profile.inheritedId}`))).val();
+        if (generation !== authGeneration || epoch !== connectionEpoch || !firebaseConnected) return;
+        if (!inherited || inherited.revoked || inherited.forceLogout) {
+            await endTabSession(false);
+            return;
+        }
+        profile.inheritedId = null;
+    }
+    const snapshot = await get(sessionRef);
+    if (generation !== authGeneration || epoch !== connectionEpoch || !firebaseConnected) return;
+    const saved = snapshot.val();
+    if (saved?.revoked || saved?.forceLogout || (!saved && !profile.fresh)) {
+        await endTabSession(false);
+        return;
+    }
+    // Disconnect leases are document-specific, so a late event from the page
+    // before a refresh cannot mark the replacement page offline.
+    const action = onDisconnect(child(sessionRef, `connections/${connectionId}`));
+    await action.update({ online: false, lastSeen: serverTimestamp() });
+    if (generation !== authGeneration || epoch !== connectionEpoch || !firebaseConnected) return;
+    disconnectAction = action;
+    const result = await runTransaction(sessionRef, data => {
+        if (generation !== authGeneration || epoch !== connectionEpoch || !firebaseConnected || data?.revoked || data?.forceLogout) return;
+        return {
+            ...profile.payload, ...(data || {}),
+            online: tabIsActive(), lastSeen: serverTimestamp(), lastActive: serverTimestamp(),
+            connectionId, connections: { [connectionId]: { online: tabIsActive(), lastSeen: serverTimestamp() } }
+        };
+    }, { applyLocally: false });
+    if (generation !== authGeneration || epoch !== connectionEpoch) return;
+    if (!result.committed) {
+        await endTabSession(false);
+        return;
+    }
+    profile.fresh = false;
+    if (!firebaseConnected) return;
+    currentConnectionId = connectionId;
+    sessionReady = true;
+    setSessionControlsEnabled(true);
+    publishTabUser(user);
+    routeByRole(user);
+    if (!sessionForceLogoutUnsub) {
+        sessionForceLogoutUnsub = onValue(sessionRef, snapshot => {
+            if (!sessionReady || generation !== authGeneration) return;
+            const data = snapshot.val();
+            if (!data || data.revoked || data.forceLogout) endTabSession(false);
+        }, error => {
+            console.error('Gagal memverifikasi sesi:', error);
+            endTabSession(false);
+        });
+    }
+    if (!sessionHeartbeatId) sessionHeartbeatId = setInterval(writePresence, SESSION_HEARTBEAT_MS);
+}
+
+async function setupSession(user, generation) {
+    const { id, fresh, inheritedId } = await claimSessionId(generation);
+    if (generation !== authGeneration) return;
     const username = getUsername(user);
     const role = getRole(user);
     const deviceId = getDeviceId();
     const deviceInfo = getDeviceInfo();
-
-    currentUserProfile = {
-        uid: user.uid,
-        username,
-        role,
-        email: user.email || '',
-        sessionId: currentSessionId,
-        deviceId,
-        ...deviceInfo
+    currentUserProfile = { uid: user.uid, username, role, email: user.email || '', sessionId: id, deviceId, ...deviceInfo, fresh, inheritedId };
+    currentUserProfile.payload = {
+        uid: user.uid, username, role, deviceId, ...deviceInfo,
+        sessionId: id, email: user.email || '',
+        createdAt: serverTimestamp(), loginAt: serverTimestamp(),
+        forceLogout: false, revoked: false, logoutRequestedBy: ''
     };
-
-    currentSessionRef = ref(db, `sessions/${user.uid}/${currentSessionId}`);
-
-    get(currentSessionRef).then((snapshot) => {
-        const existing = snapshot.val() || {};
-        if (existing.forceLogout === true || existing.revoked === true) {
-            forcedLogoutActive = true;
-            clearTabSessionId();
-            return signOut(auth);
-        }
-
-        const sessionPayload = {
-            uid: user.uid,
-            username,
-            role,
-            deviceId,
-            deviceName: deviceInfo.deviceName,
-            browser: deviceInfo.browser,
-            os: deviceInfo.os,
-            sessionId: currentSessionId,
-            email: user.email || '',
-            userAgent: deviceInfo.userAgent,
-            lastSeen: serverTimestamp(),
-            lastActive: serverTimestamp()
-        };
-
-        if (!existing.createdAt && !existing.loginAt) {
-            sessionPayload.createdAt = serverTimestamp();
-            sessionPayload.loginAt = serverTimestamp();
-            sessionPayload.forceLogout = false;
-            sessionPayload.revoked = false;
-        }
-
-        return update(currentSessionRef, sessionPayload).then(() => {
-            watchSessionConnection();
-            startSessionHeartbeat();
-            updateSessionPresence();
-        });
-    }).catch((error) => {
-        console.error('Gagal menyiapkan sesi login:', error);
-    });
-
-    if (sessionForceLogoutUnsub) sessionForceLogoutUnsub();
-    sessionForceLogoutUnsub = onValue(currentSessionRef, (snapshot) => {
-        const data = snapshot.val();
-        if (!data || forcedLogoutActive) return;
-        if (data.forceLogout !== true && data.revoked !== true) return;
-        forcedLogoutActive = true;
-        cleanupCurrentSession().finally(() => signOut(auth));
-    });
+    currentSessionRef = ref(db, `sessions/${user.uid}/${id}`);
+    await resumeSession();
 }
+
+async function resumeSession() {
+    if (sessionStarting || !pendingUser || !currentSessionRef || !firebaseConnected) return;
+    const generation = authGeneration;
+    sessionStarting = true;
+    try { await connectSession(pendingUser, generation); }
+    catch (error) {
+        console.error('Gagal memulai sesi tab:', error);
+        if (generation === authGeneration) await endTabSession(false);
+    } finally {
+        sessionStarting = false;
+        if (pendingUser && currentSessionRef && firebaseConnected && !sessionReady) {
+            setTimeout(resumeSession, 250);
+        }
+    }
+}
+
+onValue(ref(db, '.info/serverTimeOffset'), snapshot => {
+    serverOffset = Number(snapshot.val()) || 0;
+});
+onValue(ref(db, '.info/connected'), snapshot => {
+    ++connectionEpoch;
+    presenceQueue = Promise.resolve();
+    firebaseConnected = snapshot.val() === true;
+    if (firebaseConnected) resumeSession();
+    else {
+        sessionReady = false;
+        setSessionControlsEnabled(false);
+    }
+});
+for (const event of ['focus', 'blur', 'pageshow', 'online', 'offline']) window.addEventListener(event, writePresence);
+document.addEventListener('visibilitychange', writePresence);
+window.addEventListener('pagehide', () => {
+    // Best effort only. Server-side onDisconnect remains authoritative on abrupt termination.
+    if (currentSessionRef && currentConnectionId && firebaseConnected && !forcedLogoutActive) {
+        update(child(currentSessionRef, `connections/${currentConnectionId}`), { online: false, lastSeen: serverTimestamp() }).catch(console.error);
+    }
+});
 
 function routeByRole(user) {
     const role = getRole(user);
@@ -425,16 +550,19 @@ function startOperatorPanel() {
     });
     roleUnsubscribes.push(unsubNama);
 
+    sessionsLoaded = false;
     const unsubSessions = onValue(ref(db, 'sessions'), (snapshot) => {
-        latestSessionsData = snapshot.val() || {};
-        renderSessions(latestSessionsData);
+        sessionsLoaded = true;
+        cachedSessions = snapshot.val() || {};
+        renderSessions(cachedSessions);
     }, (error) => {
+        sessionsLoaded = false;
+        if (opSessionCount) opSessionCount.innerText = '-';
         console.error('Gagal memuat sesi login:', error);
         renderSessionError();
     });
     roleUnsubscribes.push(unsubSessions);
-
-    sessionsRenderIntervalId = setInterval(() => renderSessions(latestSessionsData), SESSION_HEARTBEAT_MS);
+    sessionRenderTimer = setInterval(() => { if (sessionsLoaded) renderSessions(cachedSessions); }, 1000);
 
     const activityQuery = query(ref(db, 'activity_logs'), orderByChild('createdAt'), limitToLast(80));
     const unsubLogs = onValue(activityQuery, (snapshot) => {
@@ -506,11 +634,12 @@ function flattenSessions(data) {
     const sessions = [];
     Object.entries(data).forEach(([uid, userSessions]) => {
         Object.entries(userSessions || {}).forEach(([sessionId, session]) => {
-            if (!session || session.revoked === true || session.forceLogout === true) return;
+            // Ignore partial records left by old clients' disconnect handlers.
+            if (!session || !session.deviceId || (!session.createdAt && !session.loginAt)) return;
             sessions.push({
                 uid,
                 sessionId,
-                ...session
+                ...(session || {})
             });
         });
     });
@@ -519,11 +648,10 @@ function flattenSessions(data) {
 
 function renderSessions(data) {
     if (!sessionTableBody) return;
-    const sessions = flattenSessions(data);
-    const now = Date.now();
-    const onlineCount = sessions.filter((session) => isSessionOnline(session, now)).length;
+    const sessions = flattenSessions(data).filter(session => !session.revoked && !session.forceLogout);
+    const onlineCount = sessions.filter(sessionIsOnline).length;
 
-    if (opSessionCount) opSessionCount.innerText = String(onlineCount);
+    if (opSessionCount) opSessionCount.innerText = firebaseConnected ? String(onlineCount) : '-';
     if (!sessions.length) {
         sessionTableBody.innerHTML = '<tr><td colspan="7" class="op-empty-cell">Belum ada device yang tercatat login.</td></tr>';
         return;
@@ -533,9 +661,9 @@ function renderSessions(data) {
         const isCurrentSession = currentUserProfile
             && session.uid === currentUserProfile.uid
             && session.sessionId === currentUserProfile.sessionId;
-        const isOnline = isSessionOnline(session, now);
+        const isOnline = sessionIsOnline(session);
         const statusClass = isOnline ? 'op-pill-online' : 'op-pill-offline';
-        const statusText = isOnline ? 'Online' : 'Offline';
+        const statusText = !firebaseConnected ? 'Tidak diketahui' : isOnline ? 'Online' : 'Offline';
         const actionText = isCurrentSession ? 'Logout Saya' : 'Logout';
         const deviceIdentifier = session.deviceId || session.uid || '-';
         const uidText = session.uid && session.deviceId ? session.uid : '';
@@ -613,14 +741,17 @@ if (sessionTableBody) {
         const sessionId = button.dataset.session;
         button.disabled = true;
         button.innerText = 'Memproses...';
+        if (!firebaseConnected) {
+            button.disabled = false;
+            button.innerText = 'Logout';
+            return;
+        }
 
         update(ref(db, `sessions/${uid}/${sessionId}`), {
             online: false,
-            active: false,
-            lastSeen: serverTimestamp(),
-            lastActive: serverTimestamp(),
-            forceLogout: true,
             revoked: true,
+            forceLogout: true,
+            logoutAt: serverTimestamp(),
             logoutRequestedAt: serverTimestamp(),
             logoutRequestedBy: currentUserProfile.username
         }).catch((error) => {
@@ -631,51 +762,22 @@ if (sessionTableBody) {
     });
 }
 
-function logoutCurrentTab(event) {
-    if (event) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-    }
-    if (logoutInProgress) return;
-    logoutInProgress = true;
-    cleanupCurrentSession().finally(() => signOut(auth));
-}
+if (btnAdminLogout) btnAdminLogout.addEventListener('click', () => endTabSession());
+if (btnOpLogout) btnOpLogout.addEventListener('click', () => endTabSession());
 
-if (btnAdminLogout) {
-    btnAdminLogout.addEventListener('click', logoutCurrentTab, true);
-}
-
-if (btnOpLogout) {
-    btnOpLogout.addEventListener('click', logoutCurrentTab, true);
-}
-
-['visibilitychange', 'focus', 'blur', 'online', 'offline'].forEach((eventName) => {
-    window.addEventListener(eventName, () => updateSessionPresence());
-    document.addEventListener(eventName, () => updateSessionPresence());
-});
-
-window.addEventListener('beforeunload', () => {
-    if (!currentSessionRef) return;
-    update(currentSessionRef, {
-        online: false,
-        active: false,
-        lastSeen: serverTimestamp(),
-        lastActive: serverTimestamp()
-    });
-});
-
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, user => {
+    const generation = ++authGeneration;
     clearRoleListeners();
+    stopSessionTracking();
+    publishTabUser(null);
+    if (opDashboardContainer) opDashboardContainer.style.display = 'none';
     forcedLogoutActive = false;
-    logoutInProgress = false;
-
-    if (!user) {
-        if (opDashboardContainer) opDashboardContainer.style.display = 'none';
-        cleanupCurrentSession(true);
-        currentUserProfile = null;
-        return;
-    }
-
-    setupSession(user);
-    routeByRole(user);
+    pendingUser = user;
+    currentSessionRef = null;
+    currentUserProfile = null;
+    if (user) setupSession(user, generation).catch(error => {
+        if (generation !== authGeneration) return;
+        console.error('Gagal menyiapkan sesi tab:', error);
+        endTabSession(false);
+    });
 });
